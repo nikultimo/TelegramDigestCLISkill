@@ -97,6 +97,7 @@ tg-digest run --range days --days 7
 tg-digest run --range custom --from 2026-07-01 --to 2026-07-08
 
 # Maintenance
+tg-digest check              # verify env vars, DB, and active channels
 tg-digest db backfill-dates  # repair missing Telegram publish dates in existing DB rows
 
 # Feedback (train preferences)
@@ -104,7 +105,7 @@ tg-digest feedback <id> like
 tg-digest feedback <id> dislike
 
 # Preference profile
-tg-digest profile init     # first-run interactive preferences
+tg-digest profile init     # first-run interactive preferences (⚠️ requires human TTY)
 tg-digest profile show     # readable profile + learned topic weights
 tg-digest profile set --likes "production ML" --dislikes "crypto hype"
 tg-digest profile set --likes-file ./profile.md

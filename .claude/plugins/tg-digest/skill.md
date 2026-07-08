@@ -8,7 +8,6 @@ description: >
 triggers:
   - "telegram digest"
   - "tg digest"
-  - "add channel"
   - "add telegram channel"
   - "sync channels"
   - "sync telegram"
@@ -41,7 +40,8 @@ pip install -e .
 
 | Intent | Command |
 |---|---|
-| **Sync all subscribed channels** | `tg-digest sync` |
+| Verify setup | `tg-digest check` |
+| **Sync all subscribed channels** ⚠️ | `tg-digest sync` |
 | Add single channel | `tg-digest channel add https://t.me/s/channelname` |
 | List channels | `tg-digest channel list` |
 | Deactivate channel | `tg-digest channel remove channelname` |
@@ -54,7 +54,7 @@ pip install -e .
 | Give positive feedback | `tg-digest feedback <id> like` |
 | Give negative feedback | `tg-digest feedback <id> dislike` |
 | Show preference profile | `tg-digest profile show` |
-| First-run preferences | `tg-digest profile init` |
+| First-run preferences ⚠️ | `tg-digest profile init` |
 | Set preferences directly | `tg-digest profile set --likes "..." --dislikes "..." --notes "..." --min-score 7.0` |
 | Load long profile from file | `tg-digest profile set --likes-file ./profile.md` |
 | Tune preferences naturally | `tg-digest profile tune "меньше хайпа, больше production ML"` |
@@ -89,7 +89,7 @@ tg-digest profile show
 
 ## How Preferences Work
 - A readable profile stores what the user likes, dislikes, extra guidance, and a `min_score` threshold
-- On first setup, run `tg-digest profile show`; if no profile exists, ask the user what to prioritize/avoid and run `tg-digest profile init`
+- On first setup, run `tg-digest profile show`; if no profile exists, ask the user what to prioritize/avoid and run `tg-digest profile init` (interactive, requires TTY) — automated agents should use `tg-digest profile set --likes "..." --dislikes "..."` directly
 - For long Markdown profiles, write them to a file and run `tg-digest profile set --likes-file <path>`
 - For casual changes like "поправь рекомендации", prefer `tg-digest profile tune "<request>"`
 - Each `like` boosts the topics found in that post by +0.1 (max 2.0×)

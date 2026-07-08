@@ -34,7 +34,7 @@ Optional:
 
 ## Common Agent Tasks
 
-### Sync all subscribed public channels (one-time / periodic)
+### Sync all subscribed public channels (one-time / periodic) — ⚠️ requires human input
 ```bash
 # Interactive on first run — prompts for phone number + OTP
 tg-digest sync
@@ -66,9 +66,11 @@ tg-digest run
 
 ### Set or tune starting preferences
 ```bash
-tg-digest profile init
+# For automated agents — use profile set directly (no TTY required):
 tg-digest profile set --likes "production ML, backend architecture" --dislikes "crypto hype"
 tg-digest profile tune "меньше AI tool lists, больше production ML кейсов"
+# For interactive first-time setup (requires human TTY): ⚠️
+tg-digest profile init
 ```
 
 ### Give feedback on an item
@@ -97,9 +99,10 @@ tg-digest channel remove <name>      Deactivate a channel
 tg-digest run [--dry-run]            Run digest; default range is yesterday + today
 tg-digest run --range today          Run digest for today only
 tg-digest run --range days --days 7  Run digest for the last 7 days
+tg-digest check                      Verify env vars, DB, and active channels are configured
 tg-digest db backfill-dates          Repair missing Telegram publish dates in existing posts
 tg-digest feedback <id> like|dislike Record feedback and update preferences
-tg-digest profile init               First-run interactive readable preferences
+tg-digest profile init               First-run interactive readable preferences (⚠️ requires human TTY)
 tg-digest profile show               Print readable profile and topic weights
 tg-digest profile set [...]          Edit readable profile fields directly, including --likes-file
 tg-digest profile tune <request>     Adjust readable profile with natural language
@@ -175,4 +178,6 @@ Before committing or publishing this repository:
 - `run` drops scored posts below the profile `min_score` threshold before summarization
 - Digest output is Russian, with emoji section headers, visible item IDs like `#42`, `━━━━━━━━━━━━━━━` separators, and visible sources like `[1] (https://t.me/channel/1234)`
 - The scraper only supports public channels (those with a `t.me/s/` preview URL)
-- On first run with no preferences, ask the user what they want/avoid and save it with `tg-digest profile init`; if skipped, scoring falls back to general software engineering value
+- `tg-digest check` verifies env vars, DB, and active channels — safe to call anytime, no LLM calls
+- `tg-digest sync` and `tg-digest profile init` require human TTY input; automated agents should use `tg-digest channel add` and `tg-digest profile set` instead
+- On first run with no preferences, ask the user what they want/avoid and save it with `tg-digest profile init` (interactive); in automated context use `tg-digest profile set --likes "..." --dislikes "..."` directly; if skipped, scoring falls back to general software engineering value

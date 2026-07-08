@@ -351,6 +351,45 @@ def profile_reset(
     console.print("[green]Preferences reset.[/green]")
 
 
+# ── check command ─────────────────────────────────────────────────────────────
+
+@app.command("check")
+def check_setup():
+    """Verify env vars, database, and channels are configured."""
+    ok = True
+    s = get_settings()
+
+    for var, val in [
+        ("OPENAI_BASE_URL", s.openai_base_url),
+        ("OPENAI_API_KEY", s.openai_api_key),
+        ("OPENAI_MODEL", s.openai_model),
+    ]:
+        if val:
+            console.print(f"[green]✅ {var}[/green]")
+        else:
+            console.print(f"[red]❌ {var} not set[/red]")
+            ok = False
+
+    if s.db_path.exists():
+        console.print(f"[green]✅ DB: {s.db_path}[/green]")
+    else:
+        console.print(f"[yellow]⚠  DB not found: {s.db_path} (will be created on first run)[/yellow]")
+
+    try:
+        db.init_db(s.db_path)
+        channels = db.get_active_channels(s.db_path)
+        if channels:
+            console.print(f"[green]✅ {len(channels)} active channel(s)[/green]")
+        else:
+            console.print("[yellow]⚠  No active channels — add one: tg-digest channel add <url>[/yellow]")
+    except Exception as e:
+        console.print(f"[red]❌ DB error: {e}[/red]")
+        ok = False
+
+    if not ok:
+        raise typer.Exit(1)
+
+
 # ── sync command ──────────────────────────────────────────────────────────────
 
 @app.command("sync")
