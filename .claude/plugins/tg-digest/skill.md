@@ -3,8 +3,8 @@ name: tg-digest
 description: >
   Parse public Telegram channels and generate a personalized daily digest
   in Russian Telegram-style sections. Self-learns from like/dislike feedback.
-  Use for: syncing channels from account, adding channels, running digest, giving feedback,
-  showing preference profile.
+  Use for: syncing channels from account, adding channels, setting or tuning preferences,
+  running digest, giving feedback, showing preference profile.
 triggers:
   - "telegram digest"
   - "tg digest"
@@ -15,6 +15,7 @@ triggers:
   - "run digest"
   - "digest feedback"
   - "show digest profile"
+  - "tune digest profile"
   - "tg-digest"
 ---
 
@@ -25,6 +26,7 @@ Invoke this skill when the user asks to:
 - Sync all subscribed Telegram channels into the digest
 - Add or manage individual channels
 - Run today's digest (or a dry run)
+- Set or tune the readable preference profile
 - Give like/dislike feedback on digest items
 - View or reset their topic preference profile
 
@@ -52,6 +54,10 @@ pip install -e .
 | Give positive feedback | `tg-digest feedback <id> like` |
 | Give negative feedback | `tg-digest feedback <id> dislike` |
 | Show preference profile | `tg-digest profile show` |
+| First-run preferences | `tg-digest profile init` |
+| Set preferences directly | `tg-digest profile set --likes "..." --dislikes "..." --notes "..." --min-score 7.0` |
+| Load long profile from file | `tg-digest profile set --likes-file ./profile.md` |
+| Tune preferences naturally | `tg-digest profile tune "меньше хайпа, больше production ML"` |
 | Reset preferences | `tg-digest profile reset --yes` |
 
 ## Quickstart Example
@@ -59,14 +65,18 @@ pip install -e .
 # 1. Sync all your subscribed public channels (interactive login first time)
 tg-digest sync
 
-# 2. Run digest
+# 2. Set starting preferences if profile show says there are none
+tg-digest profile show
+tg-digest profile init
+
+# 3. Run digest
 tg-digest run --dry-run
 
-# 3. Give feedback on items
+# 4. Give feedback on items
 tg-digest feedback 3 like
 tg-digest feedback 7 dislike
 
-# 4. Check what was learned
+# 5. Check what was learned
 tg-digest profile show
 ```
 
@@ -78,11 +88,16 @@ tg-digest profile show
 - Private channels are skipped (no public preview URL to scrape)
 
 ## How Preferences Work
+- A readable profile stores what the user likes, dislikes, extra guidance, and a `min_score` threshold
+- On first setup, run `tg-digest profile show`; if no profile exists, ask the user what to prioritize/avoid and run `tg-digest profile init`
+- For long Markdown profiles, write them to a file and run `tg-digest profile set --likes-file <path>`
+- For casual changes like "поправь рекомендации", prefer `tg-digest profile tune "<request>"`
 - Each `like` boosts the topics found in that post by +0.1 (max 2.0×)
 - Each `dislike` reduces topic weight by −0.1 (min 0.1×)
-- Weights are used in the next `run` to prioritize relevant content
-- After ~10 feedbacks the profile becomes meaningful; ~50 makes it stable
-- `profile show` prints a table of topics → weights so you can see exactly what was learned
+- The readable profile is the primary relevance source; feedback weights are only weak fine-tuning
+- Digest item IDs are visible as `#N`; use those IDs with `tg-digest feedback <id> like|dislike`
+- Posts below `min_score` are dropped before summarization
+- `profile show` prints the readable profile plus the topic → weight table
 
 ## Output Format
 The digest is printed to stdout and saved to `digest_output/YYYY-MM-DD.md`.

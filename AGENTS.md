@@ -64,6 +64,13 @@ tg-digest db backfill-dates
 tg-digest run
 ```
 
+### Set or tune starting preferences
+```bash
+tg-digest profile init
+tg-digest profile set --likes "production ML, backend architecture" --dislikes "crypto hype"
+tg-digest profile tune "меньше AI tool lists, больше production ML кейсов"
+```
+
 ### Give feedback on an item
 ```bash
 tg-digest feedback 42 like
@@ -92,14 +99,17 @@ tg-digest run --range today          Run digest for today only
 tg-digest run --range days --days 7  Run digest for the last 7 days
 tg-digest db backfill-dates          Repair missing Telegram publish dates in existing posts
 tg-digest feedback <id> like|dislike Record feedback and update preferences
-tg-digest profile show               Print topic weight table
-tg-digest profile reset [--yes]      Reset all weights to 1.0
+tg-digest profile init               First-run interactive readable preferences
+tg-digest profile show               Print readable profile and topic weights
+tg-digest profile set [...]          Edit readable profile fields directly, including --likes-file
+tg-digest profile tune <request>     Adjust readable profile with natural language
+tg-digest profile reset [--yes]      Reset readable profile and topic weights
 ```
 
 ## File Layout
 
 ```
-tg_digest/          Python package (scraper, filter, summarizer, deliver, feedback, db, llm, config)
+tg_digest/          Python package (scraper, filter, summarizer, deliver, feedback, profile, db, llm, config)
 digest_output/      Daily .md digests (YYYY-MM-DD.md) — gitignored
 data/tg_digest.db   SQLite store — gitignored
 .env                Secrets — gitignored
@@ -159,6 +169,10 @@ Before committing or publishing this repository:
 - The SQLite DB is the source of truth; digest item IDs in the output are DB row IDs
 - `--dry-run` is safe to use anytime; it writes the `.md` file but skips Telegram
 - Digest date ranges use Telegram post publish dates converted to the local calendar day and skip unknown-date posts until backfilled
-- Digest output is Russian, with emoji section headers, `━━━━━━━━━━━━━━━` separators, and visible sources like `[1] (https://t.me/channel/1234)`
+- Readable preferences live in SQLite `preference_profile`; learned feedback weights live in `topic_weights`
+- Digest items store scored topics; feedback uses those topics first and only falls back to LLM extraction for old rows
+- The readable profile is the primary relevance source; topic weights are only weak fine-tuning
+- `run` drops scored posts below the profile `min_score` threshold before summarization
+- Digest output is Russian, with emoji section headers, visible item IDs like `#42`, `━━━━━━━━━━━━━━━` separators, and visible sources like `[1] (https://t.me/channel/1234)`
 - The scraper only supports public channels (those with a `t.me/s/` preview URL)
-- On first run with no preferences, scoring is based on general software engineering value
+- On first run with no preferences, ask the user what they want/avoid and save it with `tg-digest profile init`; if skipped, scoring falls back to general software engineering value

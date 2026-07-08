@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from tg_digest import db, deliver, feedback, filter as filt, scraper, summarizer, tg_sync
+from tg_digest import db, deliver, feedback, filter as filt, profile, scraper, summarizer, tg_sync
 from tg_digest.config import get_settings
 from tg_digest.ranges import resolve_date_range
 
@@ -150,13 +150,19 @@ async def _run_digest(
         return
 
     weights = db.get_topic_weights(s.db_path)
+    preference_profile = db.get_preference_profile(s.db_path)
     console.print(f"[bold]Scoring {len(digest_posts)} posts...[/bold]")
     scored = await filt.score_posts(
-        digest_posts, weights,
+        digest_posts, weights, preference_profile,
         base_url=s.openai_base_url,
         api_key=s.openai_api_key,
         model=s.openai_model,
     )
+    min_score = float((preference_profile or {}).get("min_score", profile.DEFAULT_MIN_SCORE))
+    scored = filt.filter_by_min_score(scored, min_score)
+    if not scored:
+        console.print(f"[green]Nothing relevant enough for {digest_range.label} (min score {min_score:.1f}).[/green]")
+        return
 
     console.print(f"[bold]Building digest from top {len(scored)} posts...[/bold]")
     items = await summarizer.build_digest(
@@ -177,6 +183,7 @@ async def _run_digest(
             post.get("score", 0.0),
             item.get("category", "read"),
             item.get("description", ""),
+            topics=post.get("topics", []),
         )
         item["_db_id"] = db_id
 
@@ -239,12 +246,27 @@ async def _give_feedback(item_id: int, sig: int) -> None:
 
 @profile_app.command("show")
 def profile_show():
-    """Show current topic preference weights."""
+    """Show current readable preference profile and topic weights."""
     s = _ensure_db()
+    preference_profile = db.get_preference_profile(s.db_path)
     weights = db.get_topic_weights(s.db_path)
-    if not weights:
-        console.print("[yellow]No preferences learned yet.[/yellow] Run digest and give feedback to build your profile.")
+
+    if not preference_profile and not weights:
+        console.print("[yellow]No preferences yet.[/yellow] Use: tg-digest profile init")
         return
+
+    if preference_profile:
+        console.print("[bold]Readable profile[/bold]")
+        console.print(f"Likes: {preference_profile.get('likes_text') or '[dim](not set)[/dim]'}")
+        console.print(f"Dislikes: {preference_profile.get('dislikes_text') or '[dim](not set)[/dim]'}")
+        console.print(f"Notes: {preference_profile.get('notes_text') or '[dim](not set)[/dim]'}")
+        console.print(f"Min score: {float(preference_profile.get('min_score', profile.DEFAULT_MIN_SCORE)):.1f}")
+
+    if not weights:
+        console.print("[dim]No learned topic weights yet.[/dim]")
+        return
+
+    console.print("\n[bold]Learned topic weights[/bold]")
     t = Table("Topic", "Weight", "Bias")
     for topic, w in sorted(weights.items(), key=lambda x: -x[1]):
         bias = "[green]prefer[/green]" if w > 1.0 else ("[red]deprioritize[/red]" if w < 1.0 else "neutral")
@@ -252,15 +274,80 @@ def profile_show():
     console.print(t)
 
 
+@profile_app.command("init")
+def profile_init(
+    likes: str = typer.Option("", "--likes", prompt="What should the digest prioritize?"),
+    dislikes: str = typer.Option("", "--dislikes", prompt="What should the digest avoid?"),
+    notes: str = typer.Option("", "--notes", prompt="Any extra guidance?", show_default=False),
+    min_score: float = typer.Option(profile.DEFAULT_MIN_SCORE, "--min-score", help="Minimum score to include in digest"),
+):
+    """Interactively create the readable preference profile."""
+    s = _ensure_db()
+    profile.save_profile(
+        s.db_path,
+        {
+            "likes_text": likes,
+            "dislikes_text": dislikes,
+            "notes_text": notes,
+            "min_score": min_score,
+        },
+    )
+    console.print("[green]Preference profile saved.[/green]")
+
+
+@profile_app.command("set")
+def profile_set(
+    likes: str | None = typer.Option(None, "--likes", help="Replace preferred topics/formats"),
+    likes_file: Path | None = typer.Option(None, "--likes-file", help="Read preferred topics/formats from a UTF-8 text file"),
+    dislikes: str | None = typer.Option(None, "--dislikes", help="Replace avoided topics/formats"),
+    notes: str | None = typer.Option(None, "--notes", help="Replace extra guidance"),
+    min_score: float | None = typer.Option(None, "--min-score", help="Minimum score to include in digest"),
+):
+    """Set readable profile fields directly."""
+    s = _ensure_db()
+    if likes_file is not None:
+        likes = likes_file.read_text(encoding="utf-8")
+    updated = profile.merge_profile(
+        db.get_preference_profile(s.db_path),
+        likes_text=likes,
+        dislikes_text=dislikes,
+        notes_text=notes,
+        min_score=min_score,
+    )
+    profile.save_profile(s.db_path, updated)
+    console.print("[green]Preference profile saved.[/green]")
+
+
+@profile_app.command("tune")
+def profile_tune(
+    request: str = typer.Argument(..., help="Natural-language preference update"),
+):
+    """Update the readable profile from a natural-language instruction."""
+    asyncio.run(_profile_tune(request))
+
+
+async def _profile_tune(request: str) -> None:
+    s = _ensure_db()
+    updated = await profile.tune_profile(
+        request,
+        current=db.get_preference_profile(s.db_path),
+        base_url=s.openai_base_url,
+        api_key=s.openai_api_key,
+        model=s.openai_model,
+    )
+    profile.save_profile(s.db_path, updated)
+    console.print("[green]Preference profile tuned.[/green]")
+
+
 @profile_app.command("reset")
 def profile_reset(
     confirm: bool = typer.Option(False, "--yes", help="Skip confirmation prompt"),
 ):
-    """Reset all topic weights to 1.0."""
+    """Reset readable profile and topic weights."""
     if not confirm:
         typer.confirm("Reset all preference weights?", abort=True)
     s = _ensure_db()
-    db.reset_topic_weights(s.db_path)
+    db.reset_preferences(s.db_path)
     console.print("[green]Preferences reset.[/green]")
 
 

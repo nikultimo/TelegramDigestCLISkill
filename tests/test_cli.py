@@ -30,3 +30,71 @@ def test_db_backfill_dates_command_is_available():
 
     assert result.exit_code == 0
     assert "backfill missing Telegram publish dates" in result.output
+
+
+def test_profile_set_and_show_readable_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "digest.db"))
+    runner = CliRunner()
+
+    set_result = runner.invoke(
+        app,
+        [
+            "profile",
+            "set",
+            "--likes",
+            "production ML",
+            "--dislikes",
+            "crypto hype",
+            "--notes",
+            "prefer case studies",
+            "--min-score",
+            "7.5",
+        ],
+    )
+    show_result = runner.invoke(app, ["profile", "show"])
+
+    assert set_result.exit_code == 0
+    assert show_result.exit_code == 0
+    assert "production ML" in show_result.output
+    assert "crypto hype" in show_result.output
+    assert "prefer case studies" in show_result.output
+    assert "7.5" in show_result.output
+
+
+def test_profile_tune_updates_readable_profile_with_llm(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "digest.db"))
+    runner = CliRunner()
+    runner.invoke(app, ["profile", "set", "--likes", "backend", "--dislikes", "crypto"])
+
+    async def fake_chat(messages, **kwargs):
+        return (
+            '{"likes_text": "backend, production ML", '
+            '"dislikes_text": "crypto, shallow AI lists", '
+            '"notes_text": "prefer real cases", '
+            '"min_score": 8.0}'
+        )
+
+    monkeypatch.setattr("tg_digest.profile.llm.chat", fake_chat)
+
+    result = runner.invoke(app, ["profile", "tune", "меньше AI tool lists, больше production ML"])
+    show_result = runner.invoke(app, ["profile", "show"])
+
+    assert result.exit_code == 0
+    assert show_result.exit_code == 0
+    assert "production ML" in show_result.output
+    assert "shallow AI lists" in show_result.output
+    assert "8.0" in show_result.output
+
+
+def test_profile_set_accepts_likes_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "digest.db"))
+    profile_file = tmp_path / "profile.md"
+    profile_file.write_text("# Interests\n\nAI agents, health, travel, cars", encoding="utf-8")
+
+    runner = CliRunner()
+    set_result = runner.invoke(app, ["profile", "set", "--likes-file", str(profile_file)])
+    show_result = runner.invoke(app, ["profile", "show"])
+
+    assert set_result.exit_code == 0
+    assert show_result.exit_code == 0
+    assert "AI agents, health, travel, cars" in show_result.output

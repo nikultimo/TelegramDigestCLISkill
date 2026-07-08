@@ -7,6 +7,7 @@ def test_render_digest_uses_russian_telegram_style():
             {
                 "_db_id": 7,
                 "category": "read",
+                "topic_area": "ai_ml",
                 "title": "Claude Code подключился к чужому серверу",
                 "primary_url": "https://t.me/ai/10487",
                 "description": "Инцидент показывает, почему изоляция контекста критична для AI-агентов.",
@@ -15,6 +16,7 @@ def test_render_digest_uses_russian_telegram_style():
             {
                 "_db_id": 8,
                 "category": "do",
+                "topic_area": "backend",
                 "title": "Попробовать Shepherd",
                 "primary_url": "https://t.me/dev/43",
                 "description": "Система помогает откатывать ошибки агентов через сохранение состояния.",
@@ -28,9 +30,12 @@ def test_render_digest_uses_russian_telegram_style():
 
     assert content.startswith("🗓 AI ДАЙДЖЕСТ • 08.07.2026")
     assert "━━━━━━━━━━━━━━━" in content
-    assert "🛠 СДЕЛАТЬ И ПОПРОБОВАТЬ" in content
-    assert "📰 ПРОЧИТАТЬ" in content
-    assert "🔹 Claude Code подключился к чужому серверу" in content
+    assert "🤖 AI / ML" in content
+    assert "⚙️ Backend / Highload" in content
+    assert "🛠 Попробовать:" in content
+    assert "📰 Прочитать:" in content
+    assert "🔹 #7 Claude Code подключился к чужому серверу" in content
+    assert "🔹 #8 Попробовать Shepherd" in content
     assert "Инцидент показывает, почему изоляция контекста критична для AI-агентов. [1] (https://t.me/ai/10487), [2] (https://t.me/dev/42)" in content
     assert "Каналов: 3 · Постов просмотрено: 24 · В дайджесте: 2" in content
     assert "Для обратной связи: `tg-digest feedback <id> like|dislike`" in content

@@ -8,9 +8,12 @@ _SCORE_PROMPT = """\
 You are a relevance filter for a personal digest of a backend/AI engineer (25-35).
 Score each post 0-10 based on usefulness. Extract 1-5 topic tags per post.
 
-User persona: values real case studies, architecture, numbers, and actionable content.
-DISLIKES: shallow "10 AI tools that will change your life" content, crypto hype, generic news without depth.
-LOVES: production AI/ML, agent systems, backend architecture, career growth, real startup breakdowns.
+The readable user profile is the primary source of relevance.
+Preference weights are only a weak secondary signal from item-level feedback.
+Never let weak weights override an explicit profile match or explicit profile dislike.
+
+Readable user profile:
+{profile_block}
 
 Preference weights (higher = more relevant):
 {weights_block}
@@ -50,9 +53,35 @@ def _weights_block(weights: dict[str, float]) -> str:
     return "\n".join(lines)
 
 
+def _profile_block(profile: dict | None) -> str:
+    if not profile or not any((profile.get(key) or "").strip() for key in ("likes_text", "dislikes_text", "notes_text")):
+        return (
+            "Fallback personal profile:\n"
+            "Likes: practical, applicable posts about AI agents, LLM products, automation, production ML, "
+            "backend architecture, DevOps, highload, career growth, money, entrepreneurship, English through "
+            "interesting content, health, fitness, style, World of Warcraft lore, travel, cars, and useful tech.\n"
+            "Dislikes: shallow AI tool lists, hype, generic news without depth, crypto hype, empty motivation, "
+            "and advice without examples, numbers, architecture, personal experience, or practical use.\n"
+            "Notes: prefer real case studies, business impact, concrete implementation details, budgets, routes, "
+            "cost of ownership, evidence-based health advice, and formats that can improve life, work, or income."
+        )
+    return "\n".join(
+        [
+            f"Likes: {profile.get('likes_text') or '(not specified)'}",
+            f"Dislikes: {profile.get('dislikes_text') or '(not specified)'}",
+            f"Notes: {profile.get('notes_text') or '(not specified)'}",
+        ]
+    )
+
+
+def filter_by_min_score(posts: list[dict], min_score: float) -> list[dict]:
+    return [post for post in posts if float(post.get("score", 0.0)) >= min_score]
+
+
 async def _score_batch(
     batch: list[tuple[int, dict]],
     weights: dict[str, float],
+    profile: dict | None,
     *,
     base_url: str,
     api_key: str,
@@ -65,6 +94,7 @@ async def _score_batch(
         ensure_ascii=False,
     )
     prompt = _SCORE_PROMPT.format(
+        profile_block=_profile_block(profile),
         weights_block=_weights_block(weights),
         posts_json=posts_json,
     )
@@ -82,6 +112,7 @@ async def _score_batch(
 async def score_posts(
     posts: list[dict],
     weights: dict[str, float],
+    profile: dict | None = None,
     *,
     base_url: str,
     api_key: str,
@@ -103,7 +134,7 @@ async def score_posts(
 
     async def run_batch(batch):
         async with sem:
-            return await _score_batch(batch, weights, base_url=base_url, api_key=api_key, model=model)
+            return await _score_batch(batch, weights, profile, base_url=base_url, api_key=api_key, model=model)
 
     results = await asyncio.gather(*[run_batch(b) for b in batches], return_exceptions=True)
     for r in results:

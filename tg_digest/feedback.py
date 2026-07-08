@@ -30,24 +30,28 @@ async def process_feedback(
 
     db.insert_feedback(db_path, item_id, signal)
 
-    text = item.get("text", "") or item.get("summary", "")
-    if not text:
-        return []
+    topics = item.get("topics") or []
+    if not topics:
+        text = item.get("text", "") or item.get("summary", "")
+        if not text:
+            return []
 
-    raw = await llm.chat(
-        [{"role": "user", "content": _TOPIC_PROMPT.format(text=text[:500])}],
-        base_url=base_url,
-        api_key=api_key,
-        model=model,
-        json_mode=True,
-    )
-    data = llm.parse_json(raw)
-    topics = data.get("topics", [])
+        raw = await llm.chat(
+            [{"role": "user", "content": _TOPIC_PROMPT.format(text=text[:500])}],
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            json_mode=True,
+        )
+        data = llm.parse_json(raw)
+        topics = data.get("topics", [])
 
     weights = db.get_topic_weights(db_path)
     delta = 0.1 * signal  # +0.1 for like, -0.1 for dislike
     for topic in topics:
         topic = topic.lower().strip()
+        if not topic:
+            continue
         current = weights.get(topic, 1.0)
         db.upsert_topic_weight(db_path, topic, current + delta)
 

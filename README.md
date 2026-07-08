@@ -30,14 +30,17 @@ tg-digest channel add https://t.me/s/rustlang
 tg-digest channel add https://t.me/s/golang
 tg-digest channel add https://t.me/s/hackernewsfeed
 
-# 4. Test with dry run
+# 4. Set your starting preferences
+tg-digest profile init
+
+# 5. Test with dry run
 tg-digest run --dry-run
 
-# 5. Give feedback
+# 6. Give feedback
 tg-digest feedback 3 like
 tg-digest feedback 7 dislike
 
-# 6. See what was learned
+# 7. See what was learned
 tg-digest profile show
 ```
 
@@ -101,24 +104,38 @@ tg-digest feedback <id> like
 tg-digest feedback <id> dislike
 
 # Preference profile
-tg-digest profile show     # table of topic → weight
-tg-digest profile reset    # reset all to 1.0
+tg-digest profile init     # first-run interactive preferences
+tg-digest profile show     # readable profile + learned topic weights
+tg-digest profile set --likes "production ML" --dislikes "crypto hype"
+tg-digest profile set --likes-file ./profile.md
+tg-digest profile tune "меньше AI tool lists, больше production ML"
+tg-digest profile reset    # reset readable profile and learned weights
 ```
 
-## How Self-Learning Works
+## How Recommendations Work
 
-Each `like` or `dislike` triggers topic extraction via the LLM, then updates weights:
+`tg-digest profile init` stores a readable preference profile in SQLite:
+what you like, what you dislike, extra guidance, and a minimum relevance score
+for inclusion in the digest. The default minimum score is `7.0`. If no profile is
+saved yet, scoring falls back to a broad personal profile covering practical AI,
+backend/highload, career/money, English, health/style, games/lore, travel, cars,
+and useful tech.
+
+The readable profile is the primary relevance signal. Learned topic weights from
+feedback are only a weak secondary signal for fine-tuning:
 
 | Action | Effect |
 |---|---|
-| `like` | Topics in that post +0.1 weight (max 2.0×) |
-| `dislike` | Topics in that post −0.1 weight (min 0.1×) |
+| `like` | Topics stored for that digest item +0.1 weight (max 2.0×) |
+| `dislike` | Topics stored for that digest item −0.1 weight (min 0.1×) |
 
-These weights are passed to the scoring prompt on each `run`, biasing the LLM toward
-your preferred topics. After ~10 feedbacks the profile is meaningful; ~50 makes it stable.
+Scored topics are saved with each digest item, so feedback usually does not need a
+second LLM topic-extraction pass. Posts below your `min_score` are dropped before
+summarization, so weak matches are not forced into the digest.
 
-`tg-digest profile show` lets you see and reason about what was learned. If the agent
-misclassified a topic preference, `profile reset` starts fresh.
+Use `tg-digest profile set` for exact edits, or `tg-digest profile tune "..."` for
+natural-language adjustments through the configured LLM. Digest item IDs are shown
+as `#42` in the output and can be used with `tg-digest feedback 42 like|dislike`.
 
 ## Digest Date Ranges
 
@@ -215,11 +232,12 @@ systemctl --user enable --now tg-digest.timer
 
 ```
 scraper.py   → fetch /s/ HTML, parse posts
-filter.py    → LLM scores posts against topic_weights
+filter.py    → LLM scores posts against readable profile + topic_weights
 summarizer.py → LLM deduplicates + classifies into 4 categories
 deliver.py   → render Markdown, write file, send Telegram DM
 feedback.py  → LLM extracts topics, update topic_weights in SQLite
-db.py        → SQLite: channels, posts, digest_items, feedback, topic_weights
+profile.py   → readable preference profile tuning helpers
+db.py        → SQLite: channels, posts, digest_items(+topics), feedback, preference_profile, topic_weights
 llm.py       → thin httpx OpenAI-compatible client (no SDK)
 config.py    → pydantic-settings, loads .env
 cli.py       → typer CLI wiring all above

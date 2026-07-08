@@ -3,7 +3,7 @@ from tg_digest import llm
 
 
 _SUMMARIZE_PROMPT = """\
-You are building a daily digest for a software engineer. Given the posts below, do two things:
+You are building a daily digest for a software engineer. Given the posts below, do the following:
 
 1. DEDUPLICATE: If multiple posts cover the exact same story/event, merge them into one item
    and list all source URLs in "sources".
@@ -14,7 +14,13 @@ You are building a daily digest for a software engineer. Given the posts below, 
    - "read"     — articles, blog posts, news, opinion pieces
    - "practice" — coding challenges, exercises, projects to build
 
-3. Write "title" and "description" на русском языке.
+3. Assign "topic_area" — one of: "ai_ml", "backend", "career", "other"
+   - ai_ml:   AI, ML, LLMs, agents, neural networks, automation, AI products
+   - backend: backend, architecture, DevOps, highload, databases, infra, cloud
+   - career:  career growth, salary, entrepreneurship, startups, hiring, business
+   - other:   everything that doesn't fit above
+
+4. Write "title" and "description" на русском языке.
    - "title": short, news-style, max 10 words.
    - "description": 1-2 dense sentences explaining what happened and why it matters.
    Keep source URLs unchanged.
@@ -27,6 +33,7 @@ Return a JSON object:
   "items": [
     {{
       "category": "learn",
+      "topic_area": "ai_ml",
       "title": "Rust объяснил модель владения",
       "description": "Материал кратко разбирает правила borrow checker и помогает быстрее понять типичные ошибки новичков.",
       "primary_url": "https://t.me/rustlang/1234",

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -50,7 +51,8 @@ def init_db(db_path: Path) -> None:
                 score    REAL NOT NULL,
                 category TEXT NOT NULL,
                 summary  TEXT NOT NULL,
-                included INTEGER NOT NULL DEFAULT 1
+                included INTEGER NOT NULL DEFAULT 1,
+                topics_json TEXT NOT NULL DEFAULT '[]'
             );
 
             CREATE TABLE IF NOT EXISTS feedback (
@@ -65,14 +67,30 @@ def init_db(db_path: Path) -> None:
                 weight     REAL NOT NULL DEFAULT 1.0,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS preference_profile (
+                id            INTEGER PRIMARY KEY CHECK (id = 1),
+                likes_text    TEXT NOT NULL DEFAULT '',
+                dislikes_text TEXT NOT NULL DEFAULT '',
+                notes_text    TEXT NOT NULL DEFAULT '',
+                min_score     REAL NOT NULL DEFAULT 7.0,
+                updated_at    TEXT NOT NULL
+            );
         """)
         _migrate_posts_published_at(conn)
+        _migrate_digest_items_topics(conn)
 
 
 def _migrate_posts_published_at(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(posts)").fetchall()}
     if "published_at" not in columns:
         conn.execute("ALTER TABLE posts ADD COLUMN published_at TEXT")
+
+
+def _migrate_digest_items_topics(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(digest_items)").fetchall()}
+    if "topics_json" not in columns:
+        conn.execute("ALTER TABLE digest_items ADD COLUMN topics_json TEXT NOT NULL DEFAULT '[]'")
 
 
 @contextmanager
@@ -218,12 +236,20 @@ def _local_date_from_iso(value: str) -> date:
 # ── digest items ──────────────────────────────────────────────────────────────
 
 def insert_digest_item(
-    db_path: Path, run_date: str, post_db_id: int, score: float, category: str, summary: str
+    db_path: Path,
+    run_date: str,
+    post_db_id: int,
+    score: float,
+    category: str,
+    summary: str,
+    topics: list[str] | None = None,
 ) -> int:
     with get_conn(db_path) as conn:
         cur = conn.execute(
-            "INSERT INTO digest_items (run_date, post_id, score, category, summary) VALUES (?, ?, ?, ?, ?)",
-            (run_date, post_db_id, score, category, summary),
+            """INSERT INTO digest_items
+               (run_date, post_id, score, category, summary, topics_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (run_date, post_db_id, score, category, summary, json.dumps(topics or [], ensure_ascii=False)),
         )
         return cur.lastrowid
 
@@ -236,7 +262,14 @@ def get_digest_item(db_path: Path, item_id: int) -> dict | None:
                WHERE di.id = ?""",
             (item_id,),
         ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    item = dict(row)
+    try:
+        item["topics"] = json.loads(item.get("topics_json") or "[]")
+    except json.JSONDecodeError:
+        item["topics"] = []
+    return item
 
 
 # ── feedback ──────────────────────────────────────────────────────────────────
@@ -269,4 +302,55 @@ def upsert_topic_weight(db_path: Path, topic: str, weight: float) -> None:
 
 def reset_topic_weights(db_path: Path) -> None:
     with get_conn(db_path) as conn:
+        conn.execute("DELETE FROM topic_weights")
+
+
+# ── readable preference profile ───────────────────────────────────────────────
+
+def get_preference_profile(db_path: Path) -> dict | None:
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            """SELECT likes_text, dislikes_text, notes_text, min_score
+               FROM preference_profile WHERE id = 1"""
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_preference_profile(
+    db_path: Path,
+    *,
+    likes_text: str = "",
+    dislikes_text: str = "",
+    notes_text: str = "",
+    min_score: float = 7.0,
+) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute(
+            """INSERT INTO preference_profile
+               (id, likes_text, dislikes_text, notes_text, min_score, updated_at)
+               VALUES (1, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 likes_text = excluded.likes_text,
+                 dislikes_text = excluded.dislikes_text,
+                 notes_text = excluded.notes_text,
+                 min_score = excluded.min_score,
+                 updated_at = excluded.updated_at""",
+            (
+                likes_text.strip(),
+                dislikes_text.strip(),
+                notes_text.strip(),
+                float(min_score),
+                _now(),
+            ),
+        )
+
+
+def reset_preference_profile(db_path: Path) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute("DELETE FROM preference_profile")
+
+
+def reset_preferences(db_path: Path) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute("DELETE FROM preference_profile")
         conn.execute("DELETE FROM topic_weights")

@@ -127,3 +127,69 @@ def test_get_posts_for_digest_uses_moscow_local_date(tmp_path: Path):
 
     assert db.get_posts_for_digest(db_path, "2026-07-07", "2026-07-07") == []
     assert [row["db_id"] for row in db.get_posts_for_digest(db_path, "2026-07-08", "2026-07-08")] == [post.post_id]
+
+
+def test_preference_profile_round_trip(tmp_path: Path):
+    db_path = tmp_path / "digest.db"
+    db.init_db(db_path)
+
+    db.save_preference_profile(
+        db_path,
+        likes_text="production ML, architecture writeups",
+        dislikes_text="crypto hype, shallow tool lists",
+        notes_text="Prefer posts with numbers and real cases.",
+        min_score=7.5,
+    )
+
+    profile = db.get_preference_profile(db_path)
+    assert profile == {
+        "likes_text": "production ML, architecture writeups",
+        "dislikes_text": "crypto hype, shallow tool lists",
+        "notes_text": "Prefer posts with numbers and real cases.",
+        "min_score": 7.5,
+    }
+
+
+def test_reset_preferences_clears_profile_and_topic_weights(tmp_path: Path):
+    db_path = tmp_path / "digest.db"
+    db.init_db(db_path)
+    db.save_preference_profile(
+        db_path,
+        likes_text="backend",
+        dislikes_text="crypto",
+        notes_text="deep dives",
+        min_score=8.0,
+    )
+    db.upsert_topic_weight(db_path, "backend", 1.4)
+
+    db.reset_preferences(db_path)
+
+    assert db.get_preference_profile(db_path) is None
+    assert db.get_topic_weights(db_path) == {}
+
+
+def test_digest_item_round_trips_scored_topics(tmp_path: Path):
+    db_path = tmp_path / "digest.db"
+    db.init_db(db_path)
+    db.add_channel(db_path, "https://t.me/s/demo", "demo")
+    channel_id = db.list_channels(db_path)[0]["id"]
+    post_id = db.insert_post(
+        db_path,
+        channel_id,
+        "1",
+        "Agent architecture case study",
+        "https://t.me/demo/1",
+        "2026-07-08T10:00:00+00:00",
+    ).post_id
+
+    item_id = db.insert_digest_item(
+        db_path,
+        "2026-07-08",
+        post_id,
+        8.5,
+        "read",
+        "summary",
+        topics=["ai agents", "architecture"],
+    )
+
+    assert db.get_digest_item(db_path, item_id)["topics"] == ["ai agents", "architecture"]

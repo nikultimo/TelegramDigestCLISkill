@@ -7,44 +7,67 @@ import httpx
 
 
 CATEGORIES = ["do", "learn", "read", "practice"]
-CATEGORY_HEADERS = {
-    "do": "🛠 СДЕЛАТЬ И ПОПРОБОВАТЬ",
-    "learn": "📚 ИЗУЧИТЬ",
-    "read": "📰 ПРОЧИТАТЬ",
-    "practice": "💻 ПОПРАКТИКОВАТЬ",
+TOPIC_AREAS = ["ai_ml", "backend", "career", "other"]
+
+TOPIC_HEADERS = {
+    "ai_ml":   "🤖 AI / ML",
+    "backend": "⚙️ Backend / Highload",
+    "career":  "💼 Карьера / Деньги",
+    "other":   "📌 Разное",
+}
+ACTION_PREFIXES = {
+    "do":       "🛠 Попробовать",
+    "learn":    "📚 Изучить",
+    "read":     "📰 Прочитать",
+    "practice": "💻 Попрактиковать",
 }
 SECTION_SEPARATOR = "━━━━━━━━━━━━━━━"
 
 
 def render_digest(items: list[dict], run_date: str, channel_count: int, post_count: int) -> str:
-    """Render digest items to Markdown string."""
+    """Render digest items grouped by topic area, then by action category."""
     lines = [f"🗓 AI ДАЙДЖЕСТ • {_format_digest_date(run_date)}", ""]
 
-    by_cat: dict[str, list[dict]] = {c: [] for c in CATEGORIES}
+    by_topic: dict[str, list[dict]] = {t: [] for t in TOPIC_AREAS}
     for item in items:
-        cat = item.get("category", "read")
-        if cat not in by_cat:
-            cat = "read"
-        by_cat[cat].append(item)
+        topic = item.get("topic_area", "other")
+        if topic not in by_topic:
+            topic = "other"
+        by_topic[topic].append(item)
 
-    for cat in CATEGORIES:
-        cat_items = by_cat[cat]
-        if not cat_items:
+    for topic in TOPIC_AREAS:
+        topic_items = by_topic[topic]
+        if not topic_items:
             continue
         lines.append(SECTION_SEPARATOR)
-        lines.append(CATEGORY_HEADERS[cat])
+        lines.append(TOPIC_HEADERS[topic])
         lines.append("")
-        for item in cat_items:
-            title = item.get("title", "Без названия")
-            url = item.get("primary_url", "")
-            desc = item.get("description", "")
-            sources = item.get("sources", [url])
-            source_str = _format_sources(sources)
-            if source_str:
-                desc = f"{desc} {source_str}".strip()
-            lines.append(f"🔹 {title}")
-            lines.append(desc)
-            lines.append("")
+
+        by_cat: dict[str, list[dict]] = {c: [] for c in CATEGORIES}
+        for item in topic_items:
+            cat = item.get("category", "read")
+            if cat not in by_cat:
+                cat = "read"
+            by_cat[cat].append(item)
+
+        for cat in CATEGORIES:
+            cat_items = by_cat[cat]
+            if not cat_items:
+                continue
+            lines.append(f"{ACTION_PREFIXES[cat]}:")
+            for item in cat_items:
+                title = item.get("title", "Без названия")
+                item_id = item.get("_db_id")
+                url = item.get("primary_url", "")
+                desc = item.get("description", "")
+                sources = item.get("sources", [url])
+                source_str = _format_sources(sources)
+                if source_str:
+                    desc = f"{desc} {source_str}".strip()
+                prefix = f"#{item_id} " if item_id is not None else ""
+                lines.append(f"🔹 {prefix}{title}")
+                lines.append(desc)
+                lines.append("")
         lines.append("")
 
     lines.append(SECTION_SEPARATOR)
