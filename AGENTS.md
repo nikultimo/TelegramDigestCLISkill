@@ -157,6 +157,7 @@ Before committing or publishing this repository:
 - Keep `CLAUDE.md` as a symlink to `AGENTS.md`
 - Run `pip install -e ".[dev]"`, then `python -m pytest -q` and `python -m compileall -q tg_digest`
 - If packaging metadata changes, update `pyproject.toml`, `README.md`, and this file together
+- `.github/workflows/ci.yml` runs the same pytest + compileall check on push/PR across Python 3.11 and 3.12
 
 ## Scheduling
 

@@ -198,6 +198,9 @@ Before pushing this repository publicly:
 4. Run `tg-digest run --dry-run` and inspect dates/sources before enabling Telegram delivery.
 5. Verify with `pip install -e ".[dev]"`, then `python -m pytest -q` and `python -m compileall -q tg_digest`.
 
+GitHub Actions (`.github/workflows/ci.yml`) runs the same pytest + compileall
+check on every push and pull request, on Python 3.11 and 3.12.
+
 ## Scheduling
 
 ### Cron
