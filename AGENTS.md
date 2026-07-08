@@ -183,6 +183,7 @@ Before committing or publishing this repository:
 - Digest items store scored topics; feedback uses those topics first and only falls back to LLM extraction for old rows
 - The readable profile is the primary relevance source; topic weights are only weak fine-tuning
 - `run` drops scored posts below the profile `min_score` threshold before summarization
+- `profile tune` adjusts `min_score` for digest-volume requests ("показывай больше" lowers it, "stricter" raises it) and preserves it otherwise
 - Digest output is Russian, with emoji section headers, visible item IDs like `#42`, `━━━━━━━━━━━━━━━` separators, and visible sources like `[1] (https://t.me/channel/1234)`
 - The scraper only supports public channels (those with a `t.me/s/` preview URL)
 - `tg-digest check` verifies env vars, DB, and active channels — safe to call anytime, no LLM calls

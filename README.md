@@ -142,7 +142,9 @@ second LLM topic-extraction pass. Posts below your `min_score` are dropped befor
 summarization, so weak matches are not forced into the digest.
 
 Use `tg-digest profile set` for exact edits, or `tg-digest profile tune "..."` for
-natural-language adjustments through the configured LLM. Digest item IDs are shown
+natural-language adjustments through the configured LLM — including digest volume:
+"показывай больше" lowers the `min_score` threshold, "make it stricter" raises it.
+Digest item IDs are shown
 as `#42` in the output and can be used with `tg-digest feedback 42 like|dislike`.
 
 ## Digest Date Ranges

@@ -10,6 +10,12 @@ _TUNE_PROMPT = """\
 Update a Telegram digest preference profile from a natural-language user request.
 Preserve existing preferences unless the request clearly changes them.
 
+min_score is the 0-10 relevance threshold: posts scored below it are dropped
+from the digest. If the user asks to see more items ("show more", "показывай
+больше"), lower min_score by about 1.0; if they ask for a stricter or shorter
+digest, raise it by about 1.0. Keep it within 0-10. If the request is not
+about digest volume, return the current min_score unchanged.
+
 Current profile:
 {profile_json}
 
@@ -83,10 +89,11 @@ async def tune_profile(
         json_mode=True,
     )
     data = llm.parse_json(raw)
+    raw_min_score = data.get("min_score")
     return merge_profile(
         current,
         likes_text=str(data.get("likes_text", "")),
         dislikes_text=str(data.get("dislikes_text", "")),
         notes_text=str(data.get("notes_text", "")),
-        min_score=float(data.get("min_score", DEFAULT_MIN_SCORE)),
+        min_score=float(raw_min_score) if raw_min_score is not None else None,
     )

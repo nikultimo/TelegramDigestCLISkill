@@ -110,6 +110,7 @@ tg-digest profile show
 - Posts below `min_score` are dropped before summarization
 - For long Markdown profiles, write them to a file and run `tg-digest profile set --likes-file <path>`
 - For casual changes like "поправь рекомендации", prefer `tg-digest profile tune "<request>"`
+- `profile tune` also adjusts `min_score` for volume requests: "показывай больше" lowers the threshold, "make it stricter" raises it
 - `profile show` prints the readable profile plus the topic → weight table
 
 ## Output format
