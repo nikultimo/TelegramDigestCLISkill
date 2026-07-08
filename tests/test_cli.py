@@ -133,6 +133,8 @@ def test_profile_reset_clears_profile_and_weights(tmp_path, monkeypatch):
 
 
 def test_check_reports_unset_openai_vars(tmp_path, monkeypatch):
+    # Isolate from a real .env at the repo root, which would repopulate the vars
+    monkeypatch.setenv("TG_DIGEST_HOME", str(tmp_path))
     monkeypatch.setenv("DB_PATH", str(tmp_path / "digest.db"))
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
