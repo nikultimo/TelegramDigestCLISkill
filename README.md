@@ -69,7 +69,14 @@ TG_CHAT_ID=...      # optional — your chat ID from @userinfobot
 TG_API_ID=0         # optional — only for tg-digest sync, from https://my.telegram.org/apps
 TG_API_HASH=...     # optional — only for tg-digest sync
 TG_SESSION=./data/tg_session
+
+# TG_DIGEST_HOME=/path/to/telegram_agent  # optional — project root when running from another directory
 ```
+
+Relative paths (`DB_PATH`, `DIGEST_OUTPUT_DIR`, `TG_SESSION`) resolve against
+the project root, not the current directory. With an editable install
+(`pip install -e .`) the root is detected automatically; otherwise set
+`TG_DIGEST_HOME` so agents and scripts can run `tg-digest` from anywhere.
 
 To get your Telegram bot token:
 1. Message [@BotFather](https://t.me/BotFather) on Telegram
@@ -220,14 +227,24 @@ systemctl --user enable --now tg-digest.timer
 /loop 24h run digest
 ```
 
-## Agent Compatibility
+## Using with AI Agents
+
+The canonical skill lives at `skills/tg-digest/SKILL.md` and follows the open
+[Agent Skills](https://agentskills.io) standard (`name` + `description`
+frontmatter, folder-per-skill), so any skills-compatible agent can use it.
 
 | Runner | How to use |
 |---|---|
-| **Claude Code** | Skill auto-triggers on "run digest", "add channel", etc. |
+| **Claude Code** | Picked up via `.claude/skills/tg-digest/SKILL.md` (symlink to the canonical skill) — auto-triggers on "run digest", "add channel", etc. |
+| **hermes-agent** | `ln -s /path/to/telegram_agent/skills/tg-digest ~/.hermes/skills/tg-digest` |
+| **OpenClaw** | `ln -s /path/to/telegram_agent/skills/tg-digest ~/.openclaw/skills/tg-digest` |
 | **Codex / OpenCode** | Reads `AGENTS.md` automatically — call CLI commands directly |
-| **Hermes / local agents** | Same as Codex — `AGENTS.md` describes all commands |
 | **Cron / scripts** | `tg-digest run` with env vars set |
+
+Agents that run commands from their own workspace should set
+`TG_DIGEST_HOME=/path/to/telegram_agent` in the environment so `.env`, the
+SQLite DB, and the output directory resolve to this project (not needed with
+an editable install).
 
 ## Architecture
 

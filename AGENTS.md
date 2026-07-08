@@ -31,6 +31,12 @@ Optional:
 - `DIGEST_OUTPUT_DIR` — where to save .md files (default: `./digest_output`)
 - `DB_PATH` — SQLite path (default: `./data/tg_digest.db`)
 - `TG_SESSION` — Telethon session path for `sync` (default: `./data/tg_session`)
+- `TG_DIGEST_HOME` — project root for resolving `.env` and relative paths when
+  running from another working directory (auto-detected with an editable install)
+
+Relative paths and `.env` resolve against the project root, not the current
+working directory — agents running `tg-digest` from their own workspace get the
+same DB and output directory as runs from the repo.
 
 ## Common Agent Tasks
 
@@ -117,7 +123,8 @@ digest_output/      Daily .md digests (YYYY-MM-DD.md) — gitignored
 data/tg_digest.db   SQLite store — gitignored
 .env                Secrets — gitignored
 .env.example        Template for .env
-.claude/plugins/tg-digest/skill.md   Claude Code skill definition
+skills/tg-digest/SKILL.md            Canonical agent skill (agentskills.io standard)
+.claude/skills/tg-digest/SKILL.md    Symlink to the canonical skill for Claude Code
 ```
 
 ## Documentation Sync Rule
@@ -132,7 +139,7 @@ the same change. Check these files before finishing:
 
 - `README.md` — user-facing setup, commands, behavior, scheduling, output format
 - `AGENTS.md` / `CLAUDE.md` — agent-facing operational instructions
-- `.claude/plugins/tg-digest/skill.md` — Claude skill commands and usage notes
+- `skills/tg-digest/SKILL.md` — canonical agent skill (`.claude/skills/tg-digest/SKILL.md` is a symlink to it)
 - `.env.example` — env vars and defaults
 - `pyproject.toml` — dependencies, entrypoints, supported Python version
 

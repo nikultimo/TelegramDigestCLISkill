@@ -1,5 +1,21 @@
+import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def project_root() -> Path:
+    """Root against which .env and relative paths are resolved.
+
+    Priority: TG_DIGEST_HOME env var, then the repo checkout containing this
+    package (editable install), then the current working directory.
+    """
+    env_home = os.environ.get("TG_DIGEST_HOME")
+    if env_home:
+        return Path(env_home).expanduser().resolve()
+    package_parent = Path(__file__).resolve().parents[1]
+    if (package_parent / "pyproject.toml").exists():
+        return package_parent
+    return Path.cwd()
 
 
 class Settings(BaseSettings):
@@ -23,4 +39,12 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
-    return Settings()
+    root = project_root()
+    settings = Settings(_env_file=root / ".env")
+    if not settings.db_path.is_absolute():
+        settings.db_path = root / settings.db_path
+    if not settings.digest_output_dir.is_absolute():
+        settings.digest_output_dir = root / settings.digest_output_dir
+    if not Path(settings.tg_session).is_absolute():
+        settings.tg_session = str(root / settings.tg_session)
+    return settings
