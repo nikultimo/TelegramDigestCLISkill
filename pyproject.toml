@@ -32,6 +32,12 @@ dependencies = [
     "telethon>=1.36",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
 [project.scripts]
 tg-digest = "tg_digest.cli:app"
 
@@ -42,3 +48,6 @@ Issues = "https://github.com/nikultimo/tg-digest/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["tg_digest*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

@@ -117,11 +117,14 @@ async def score_posts(
     base_url: str,
     api_key: str,
     model: str,
-    top_n: int = 20,
-) -> list[dict]:
-    """Score all posts in batches. Returns top_n posts sorted by score."""
+) -> tuple[list[dict], int]:
+    """Score all posts in batches. Returns (all posts sorted by score desc, failed_batch_count).
+
+    Callers are responsible for applying min_score filtering and any digest-size
+    cap — this function does not drop posts.
+    """
     if not posts:
-        return []
+        return [], 0
 
     batches = [
         [(i, posts[i]) for i in range(start, min(start + _BATCH_SIZE, len(posts)))]
@@ -130,6 +133,7 @@ async def score_posts(
 
     # run batches concurrently (max 5 at a time to avoid rate limits)
     result_map: dict[int, dict] = {}
+    failed_batches = 0
     sem = asyncio.Semaphore(5)
 
     async def run_batch(batch):
@@ -140,6 +144,8 @@ async def score_posts(
     for r in results:
         if isinstance(r, dict):
             result_map.update(r)
+        else:
+            failed_batches += 1
 
     scored = []
     for i, post in enumerate(posts):
@@ -151,4 +157,4 @@ async def score_posts(
         })
 
     scored.sort(key=lambda p: p["score"], reverse=True)
-    return scored[:top_n]
+    return scored, failed_batches

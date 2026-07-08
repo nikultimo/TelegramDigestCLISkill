@@ -168,6 +168,18 @@ def test_reset_preferences_clears_profile_and_topic_weights(tmp_path: Path):
     assert db.get_topic_weights(db_path) == {}
 
 
+def test_upsert_topic_weight_clamps_to_bounds(tmp_path: Path):
+    db_path = tmp_path / "digest.db"
+    db.init_db(db_path)
+
+    db.upsert_topic_weight(db_path, "overhyped", 5.0)
+    db.upsert_topic_weight(db_path, "deprioritized", -3.0)
+
+    weights = db.get_topic_weights(db_path)
+    assert weights["overhyped"] == 2.0
+    assert weights["deprioritized"] == 0.1
+
+
 def test_digest_item_round_trips_scored_topics(tmp_path: Path):
     db_path = tmp_path / "digest.db"
     db.init_db(db_path)

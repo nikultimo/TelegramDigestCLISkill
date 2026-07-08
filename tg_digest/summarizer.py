@@ -73,15 +73,20 @@ async def build_digest(
         model=model,
         json_mode=True,
     )
-    data = llm.parse_json(raw)
+    try:
+        data = llm.parse_json(raw)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise RuntimeError(f"LLM returned invalid JSON while building the digest: {e}") from e
     items = data.get("items", [])
 
-    # attach original post references for DB storage
+    # attach original post references for DB storage. If the LLM didn't return a
+    # valid source index, leave "_post" empty rather than guessing — the caller
+    # skips storing digest items with no resolvable source post.
     for item in items:
         indices = item.get("post_indices", [])
         if indices and indices[0] < len(scored_posts):
             item["_post"] = scored_posts[indices[0]]
         else:
-            item["_post"] = scored_posts[0] if scored_posts else {}
+            item["_post"] = {}
 
     return items

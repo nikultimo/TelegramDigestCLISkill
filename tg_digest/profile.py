@@ -88,7 +88,10 @@ async def tune_profile(
         model=model,
         json_mode=True,
     )
-    data = llm.parse_json(raw)
+    try:
+        data = llm.parse_json(raw)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise RuntimeError(f"LLM returned invalid JSON while tuning the profile: {e}") from e
     raw_min_score = data.get("min_score")
     return merge_profile(
         current,

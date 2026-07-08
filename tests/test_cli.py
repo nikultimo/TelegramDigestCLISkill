@@ -98,3 +98,65 @@ def test_profile_set_accepts_likes_file(tmp_path, monkeypatch):
     assert set_result.exit_code == 0
     assert show_result.exit_code == 0
     assert "AI agents, health, travel, cars" in show_result.output
+
+
+def test_profile_init_saves_readable_profile_from_prompts(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "digest.db"))
+    runner = CliRunner()
+
+    init_result = runner.invoke(
+        app,
+        ["profile", "init"],
+        input="production ML, backend architecture\ncrypto hype\nprefer real case studies\n",
+    )
+    show_result = runner.invoke(app, ["profile", "show"])
+
+    assert init_result.exit_code == 0
+    assert show_result.exit_code == 0
+    assert "production ML, backend architecture" in show_result.output
+    assert "crypto hype" in show_result.output
+    assert "prefer real case studies" in show_result.output
+
+
+def test_profile_reset_clears_profile_and_weights(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "digest.db"))
+    runner = CliRunner()
+    runner.invoke(app, ["profile", "set", "--likes", "backend", "--dislikes", "crypto"])
+
+    reset_result = runner.invoke(app, ["profile", "reset", "--yes"])
+    show_result = runner.invoke(app, ["profile", "show"])
+
+    assert reset_result.exit_code == 0
+    assert show_result.exit_code == 0
+    assert "backend" not in show_result.output
+    assert "No preferences yet" in show_result.output
+
+
+def test_check_reports_unset_openai_vars(tmp_path, monkeypatch):
+    # Isolate from a real .env at the repo root, which would repopulate the vars
+    monkeypatch.setenv("TG_DIGEST_HOME", str(tmp_path))
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "digest.db"))
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+
+    result = CliRunner().invoke(app, ["check"])
+
+    assert result.exit_code == 1
+    assert "OPENAI_BASE_URL not set" in result.output
+    assert "OPENAI_API_KEY not set" in result.output
+    assert "OPENAI_MODEL not set" in result.output
+
+
+def test_check_reports_configured_openai_vars(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "digest.db"))
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    result = CliRunner().invoke(app, ["check"])
+
+    assert result.exit_code == 0
+    assert "✅ OPENAI_BASE_URL" in result.output
+    assert "✅ OPENAI_API_KEY" in result.output
+    assert "✅ OPENAI_MODEL" in result.output
