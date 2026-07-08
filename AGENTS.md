@@ -155,7 +155,7 @@ Before committing or publishing this repository:
 - Never stage `.env`, `data/`, `digest_output/`, caches, build outputs, or `*.egg-info/`
 - Check staged files for real API keys, Telegram bot tokens, session files, and SQLite data
 - Keep `CLAUDE.md` as a symlink to `AGENTS.md`
-- Run `python -m pytest -q` and `python -m compileall -q tg_digest`
+- Run `pip install -e ".[dev]"`, then `python -m pytest -q` and `python -m compileall -q tg_digest`
 - If packaging metadata changes, update `pyproject.toml`, `README.md`, and this file together
 
 ## Scheduling
@@ -182,7 +182,7 @@ Before committing or publishing this repository:
 - Readable preferences live in SQLite `preference_profile`; learned feedback weights live in `topic_weights`
 - Digest items store scored topics; feedback uses those topics first and only falls back to LLM extraction for old rows
 - The readable profile is the primary relevance source; topic weights are only weak fine-tuning
-- `run` drops scored posts below the profile `min_score` threshold before summarization
+- `run` drops scored posts below the profile `min_score` threshold before summarization, then keeps only the top 20 by score for that run — posts beyond that cap stay in the DB for a later run
 - `profile tune` adjusts `min_score` for digest-volume requests ("показывай больше" lowers it, "stricter" raises it) and preserves it otherwise
 - Digest output is Russian, with emoji section headers, visible item IDs like `#42`, `━━━━━━━━━━━━━━━` separators, and visible sources like `[1] (https://t.me/channel/1234)`
 - The scraper only supports public channels (those with a `t.me/s/` preview URL)

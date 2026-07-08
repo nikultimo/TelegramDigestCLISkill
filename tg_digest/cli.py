@@ -21,6 +21,8 @@ app.add_typer(db_app, name="db")
 
 console = Console()
 
+DIGEST_TOP_N = 20  # max items per digest, applied after min_score filtering
+
 
 def _settings():
     return get_settings()
@@ -152,25 +154,40 @@ async def _run_digest(
     weights = db.get_topic_weights(s.db_path)
     preference_profile = db.get_preference_profile(s.db_path)
     console.print(f"[bold]Scoring {len(digest_posts)} posts...[/bold]")
-    scored = await filt.score_posts(
+    scored, failed_batches = await filt.score_posts(
         digest_posts, weights, preference_profile,
         base_url=s.openai_base_url,
         api_key=s.openai_api_key,
         model=s.openai_model,
     )
+    if failed_batches:
+        console.print(
+            f"[yellow]⚠  {failed_batches} scoring batch(es) failed and were scored 0.0 — "
+            f"those posts may be missing from this digest.[/yellow]"
+        )
     min_score = float((preference_profile or {}).get("min_score", profile.DEFAULT_MIN_SCORE))
     scored = filt.filter_by_min_score(scored, min_score)
     if not scored:
         console.print(f"[green]Nothing relevant enough for {digest_range.label} (min score {min_score:.1f}).[/green]")
         return
+    if len(scored) > DIGEST_TOP_N:
+        console.print(
+            f"[yellow]⚠  {len(scored)} posts passed min score {min_score:.1f} — "
+            f"keeping the top {DIGEST_TOP_N} by score.[/yellow]"
+        )
+        scored = scored[:DIGEST_TOP_N]
 
     console.print(f"[bold]Building digest from top {len(scored)} posts...[/bold]")
-    items = await summarizer.build_digest(
-        scored,
-        base_url=s.openai_base_url,
-        api_key=s.openai_api_key,
-        model=s.openai_model,
-    )
+    try:
+        items = await summarizer.build_digest(
+            scored,
+            base_url=s.openai_base_url,
+            api_key=s.openai_api_key,
+            model=s.openai_model,
+        )
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
 
     # persist digest items to DB and attach DB IDs
     for item in items:
@@ -328,13 +345,17 @@ def profile_tune(
 
 async def _profile_tune(request: str) -> None:
     s = _ensure_db()
-    updated = await profile.tune_profile(
-        request,
-        current=db.get_preference_profile(s.db_path),
-        base_url=s.openai_base_url,
-        api_key=s.openai_api_key,
-        model=s.openai_model,
-    )
+    try:
+        updated = await profile.tune_profile(
+            request,
+            current=db.get_preference_profile(s.db_path),
+            base_url=s.openai_base_url,
+            api_key=s.openai_api_key,
+            model=s.openai_model,
+        )
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
     profile.save_profile(s.db_path, updated)
     console.print("[green]Preference profile tuned.[/green]")
 

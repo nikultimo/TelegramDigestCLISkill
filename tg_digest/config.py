@@ -21,9 +21,9 @@ def project_root() -> Path:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    openai_base_url: str = "https://api.openai.com/v1"
-    openai_api_key: str = "sk-placeholder"
-    openai_model: str = "deepseek/deepseek-v4-flash"
+    openai_base_url: str = ""
+    openai_api_key: str = ""
+    openai_model: str = ""
 
     tg_bot_token: str = ""
     tg_chat_id: str = ""

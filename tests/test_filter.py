@@ -13,7 +13,7 @@ async def test_score_posts_includes_readable_profile_in_prompt(monkeypatch):
 
     monkeypatch.setattr(filt.llm, "chat", fake_chat)
 
-    scored = await filt.score_posts(
+    scored, failed_batches = await filt.score_posts(
         [{"text": "Agent case study", "url": "https://t.me/demo/1"}],
         {"agents": 1.3},
         {
@@ -27,6 +27,7 @@ async def test_score_posts_includes_readable_profile_in_prompt(monkeypatch):
         model="test-model",
     )
 
+    assert failed_batches == 0
     assert scored[0]["score"] == 8.0
     assert "production agent systems" in prompts[0]
     assert "generic AI tool lists" in prompts[0]
@@ -34,6 +35,26 @@ async def test_score_posts_includes_readable_profile_in_prompt(monkeypatch):
     assert "agents: 1.3x" in prompts[0]
     assert "primary source of relevance" in prompts[0]
     assert "weak secondary signal" in prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_score_posts_reports_failed_batches_without_dropping_posts(monkeypatch):
+    async def failing_chat(messages, **kwargs):
+        raise RuntimeError("LLM unavailable")
+
+    monkeypatch.setattr(filt.llm, "chat", failing_chat)
+
+    posts = [{"text": "post one", "url": "https://t.me/demo/1"}]
+    scored, failed_batches = await filt.score_posts(
+        posts, {}, None,
+        base_url="http://llm.test/v1",
+        api_key="test",
+        model="test-model",
+    )
+
+    assert failed_batches == 1
+    assert len(scored) == 1
+    assert scored[0]["score"] == 0.0
 
 
 def test_filter_by_min_score_keeps_only_relevant_posts():

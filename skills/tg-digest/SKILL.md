@@ -107,7 +107,7 @@ tg-digest profile show
 - The readable profile is the primary relevance source; feedback weights are only weak fine-tuning
 - Each `like` boosts the topics found in that post by +0.1 (max 2.0×); each `dislike` reduces by −0.1 (min 0.1×)
 - Digest item IDs are visible as `#N`; use those IDs with `tg-digest feedback <id> like|dislike`
-- Posts below `min_score` are dropped before summarization
+- Posts below `min_score` are dropped before summarization, then only the top 20 by score are kept per run — the rest stay in the DB for a later run
 - For long Markdown profiles, write them to a file and run `tg-digest profile set --likes-file <path>`
 - For casual changes like "поправь рекомендации", prefer `tg-digest profile tune "<request>"`
 - `profile tune` also adjusts `min_score` for volume requests: "показывай больше" lowers the threshold, "make it stricter" raises it

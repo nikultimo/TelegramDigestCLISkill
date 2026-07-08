@@ -70,6 +70,10 @@ TG_API_ID=0         # optional — only for tg-digest sync, from https://my.tele
 TG_API_HASH=...     # optional — only for tg-digest sync
 TG_SESSION=./data/tg_session
 
+SCRAPE_LIMIT=20               # optional — max posts to fetch per channel per run
+DIGEST_OUTPUT_DIR=./digest_output  # optional — where .md digests are saved
+DB_PATH=./data/tg_digest.db   # optional — SQLite store location
+
 # TG_DIGEST_HOME=/path/to/telegram_agent  # optional — project root when running from another directory
 ```
 
@@ -90,6 +94,9 @@ To get your chat ID:
 ## Command Reference
 
 ```bash
+# Sync all subscribed public channels from your Telegram account (⚠️ requires human TTY)
+tg-digest sync
+
 # Channel management
 tg-digest channel add https://t.me/s/channelname
 tg-digest channel list
@@ -117,7 +124,7 @@ tg-digest profile show     # readable profile + learned topic weights
 tg-digest profile set --likes "production ML" --dislikes "crypto hype"
 tg-digest profile set --likes-file ./profile.md
 tg-digest profile tune "меньше AI tool lists, больше production ML"
-tg-digest profile reset    # reset readable profile and learned weights
+tg-digest profile reset --yes  # reset readable profile and learned weights
 ```
 
 ## How Recommendations Work
@@ -139,7 +146,9 @@ feedback are only a weak secondary signal for fine-tuning:
 
 Scored topics are saved with each digest item, so feedback usually does not need a
 second LLM topic-extraction pass. Posts below your `min_score` are dropped before
-summarization, so weak matches are not forced into the digest.
+summarization, so weak matches are not forced into the digest. If more than 20
+posts pass the threshold, only the top 20 by score are included in a single
+digest — the rest remain in the DB and can surface in a later run.
 
 Use `tg-digest profile set` for exact edits, or `tg-digest profile tune "..."` for
 natural-language adjustments through the configured LLM — including digest volume:
@@ -187,7 +196,7 @@ Before pushing this repository publicly:
 2. Confirm private runtime files are ignored: `.env`, `data/`, `digest_output/`, caches, build outputs, and egg-info.
 3. Run `tg-digest db backfill-dates` before generating a real digest from an existing local DB.
 4. Run `tg-digest run --dry-run` and inspect dates/sources before enabling Telegram delivery.
-5. Verify with `python -m pytest -q` and `python -m compileall -q tg_digest`.
+5. Verify with `pip install -e ".[dev]"`, then `python -m pytest -q` and `python -m compileall -q tg_digest`.
 
 ## Scheduling
 
