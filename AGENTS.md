@@ -185,7 +185,8 @@ Before committing or publishing this repository:
 - The readable profile is the primary relevance source; topic weights are only weak fine-tuning
 - `run` drops scored posts below the profile `min_score` threshold before summarization, then keeps only the top 20 by score for that run — posts beyond that cap stay in the DB for a later run
 - `profile tune` adjusts `min_score` for digest-volume requests ("показывай больше" lowers it, "stricter" raises it) and preserves it otherwise
-- Digest output is Russian, with emoji section headers, visible item IDs like `#42`, `━━━━━━━━━━━━━━━` separators, and visible sources like `[1] (https://t.me/channel/1234)`
+- Digest output is Russian, with emoji section headers, visible item IDs like `#42`, `━━━━━━━━━━━━━━━` separators, and compact numbered source links like `[1](https://t.me/channel/1234)` (renders as a clickable `[1]` in Telegram, not a visible URL)
+- Within each topic/category section, items are ordered by relevance score, highest first
 - The scraper only supports public channels (those with a `t.me/s/` preview URL)
 - `tg-digest check` verifies env vars, DB, and active channels — safe to call anytime, no LLM calls
 - `tg-digest sync` and `tg-digest profile init` require human TTY input; automated agents should use `tg-digest channel add` and `tg-digest profile set` instead

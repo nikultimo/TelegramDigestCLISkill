@@ -127,8 +127,12 @@ rows with missing dates can be repaired with `tg-digest db backfill-dates`.
 📰 ПРОЧИТАТЬ
 
 🔹 Заголовок новости
-Короткое объяснение, почему это важно. [1] (https://t.me/channel/1234)
+Короткое объяснение, почему это важно. [1](https://t.me/channel/1234)
 ```
+
+Sources render as compact numbered links (clickable `[1]` in Telegram,
+not a visible URL). Within each topic/category section, items are ordered by
+relevance score, most relevant first.
 
 ## Failure recovery
 

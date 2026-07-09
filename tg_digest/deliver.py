@@ -51,7 +51,7 @@ def render_digest(items: list[dict], run_date: str, channel_count: int, post_cou
             by_cat[cat].append(item)
 
         for cat in CATEGORIES:
-            cat_items = by_cat[cat]
+            cat_items = sorted(by_cat[cat], key=_item_score, reverse=True)
             if not cat_items:
                 continue
             lines.append(f"{ACTION_PREFIXES[cat]}:")
@@ -92,7 +92,11 @@ def _format_single_date(value: str) -> str:
 
 def _format_sources(sources: list[str]) -> str:
     urls = [source for source in sources if source]
-    return ", ".join(f"[{index}] ({url})" for index, url in enumerate(urls, start=1))
+    return ", ".join(f"[{index}]({url})" for index, url in enumerate(urls, start=1))
+
+
+def _item_score(item: dict) -> float:
+    return float(item.get("_post", {}).get("score", 0.0))
 
 
 def write_md(content: str, output_dir: Path, run_date: str) -> Path:
@@ -131,7 +135,7 @@ def _md_to_html(md: str) -> str:
     def link(match: re.Match) -> str:
         text = escape(match.group(1), quote=False)
         url = escape(match.group(2), quote=True)
-        return hold(f'<a href="{url}">{text}</a>')
+        return hold(f'<a href="{url}">[{text}]</a>')
 
     def bold(match: re.Match) -> str:
         return hold(f"<b>{escape(match.group(1), quote=False)}</b>")

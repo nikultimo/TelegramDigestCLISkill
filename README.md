@@ -183,10 +183,14 @@ Digest output is generated in Russian and formatted for Telegram readability:
 📰 ПРОЧИТАТЬ
 
 🔹 Заголовок новости
-Короткое объяснение, почему это важно. [1] (https://t.me/channel/1234)
+Короткое объяснение, почему это важно. [1](https://t.me/channel/1234)
 ```
 
-The source URLs stay visible in the text so the same `.md` file is easy to read locally.
+Sources render as compact numbered markdown links: Telegram shows a clickable
+`[1]` instead of a raw URL, and the same `[1](url)` syntax in the `.md` file
+renders the same way in a markdown viewer while still keeping the full URL
+one click (or hover) away. Within each topic/category section, items are
+ordered by relevance score, most relevant first.
 
 ## Public Release Checklist
 
