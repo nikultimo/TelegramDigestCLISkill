@@ -36,10 +36,42 @@ def test_render_digest_uses_russian_telegram_style():
     assert "📰 Прочитать:" in content
     assert "🔹 #7 Claude Code подключился к чужому серверу" in content
     assert "🔹 #8 Попробовать Shepherd" in content
-    assert "Инцидент показывает, почему изоляция контекста критична для AI-агентов. [1] (https://t.me/ai/10487), [2] (https://t.me/dev/42)" in content
+    assert "Инцидент показывает, почему изоляция контекста критична для AI-агентов. [1](https://t.me/ai/10487), [2](https://t.me/dev/42)" in content
     assert "Каналов: 3 · Постов просмотрено: 24 · В дайджесте: 2" in content
     assert "Для обратной связи: `tg-digest feedback <id> like|dislike`" in content
     assert "What to Read" not in content
+
+
+def test_render_digest_sorts_items_by_score_within_section():
+    content = deliver.render_digest(
+        [
+            {
+                "_db_id": 1,
+                "category": "read",
+                "topic_area": "ai_ml",
+                "title": "Low score item",
+                "primary_url": "https://t.me/ai/1",
+                "description": "Less relevant.",
+                "sources": ["https://t.me/ai/1"],
+                "_post": {"score": 3.0},
+            },
+            {
+                "_db_id": 2,
+                "category": "read",
+                "topic_area": "ai_ml",
+                "title": "High score item",
+                "primary_url": "https://t.me/ai/2",
+                "description": "More relevant.",
+                "sources": ["https://t.me/ai/2"],
+                "_post": {"score": 9.0},
+            },
+        ],
+        "2026-07-08",
+        1,
+        2,
+    )
+
+    assert content.index("High score item") < content.index("Low score item")
 
 
 def test_render_digest_uses_range_date_in_header():
@@ -69,5 +101,6 @@ def test_markdown_to_telegram_html_escapes_text_and_links():
 
     assert "A &lt; B &amp; C" in html
     assert "Use x &lt; y &amp; z" in html
-    assert "[1] (https://example.com/?a=1&amp;b=2)" in html
+    assert '<a href="https://example.com/?a=1&amp;b=2">[1]</a>' in html
+    assert "[1](" not in html
     assert "< y" not in html
