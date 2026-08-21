@@ -8,7 +8,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  test-matrix:
+    name: test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -27,3 +28,13 @@ jobs:
         run: python -m pytest -q
       - name: Compile package
         run: python -m compileall -q tg_digest
+
+  test:
+    if: always()
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the Python matrix
+        env:
+          MATRIX_RESULT: ${{ needs.test-matrix.result }}
+        run: test "$MATRIX_RESULT" = "success"
