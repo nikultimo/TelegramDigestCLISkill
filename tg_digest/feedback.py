@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from tg_digest import db, llm
 
@@ -12,6 +13,21 @@ Text:
 
 Return JSON: {{"topics": ["tag1", "tag2"]}}
 """
+
+_TOPIC_ALIASES = {
+    "ai agent": "ai agents",
+    "autonomous agent": "ai agents",
+    "autonomous agents": "ai agents",
+    "langraph": "langgraph",
+    "large language model": "llm",
+    "large language models": "llm",
+    "machine learning": "ml",
+}
+
+
+def normalize_topic(value: str) -> str:
+    topic = re.sub(r"\s+", " ", value.lower().replace("_", " ").replace("-", " ")).strip()
+    return _TOPIC_ALIASES.get(topic, topic)
 
 
 async def process_feedback(
@@ -49,7 +65,7 @@ async def process_feedback(
     weights = db.get_topic_weights(db_path)
     delta = 0.1 * signal  # +0.1 for like, -0.1 for dislike
     for topic in topics:
-        topic = topic.lower().strip()
+        topic = normalize_topic(str(topic))
         if not topic:
             continue
         current = weights.get(topic, 1.0)

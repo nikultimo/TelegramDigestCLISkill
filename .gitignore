@@ -16,3 +16,9 @@ build/
 .DS_Store
 .idea/
 .vscode/
+
+# Local one-off research artifacts (may contain private Telegram data)
+scrape_jobs.py
+x-feed.html
+skills/tg-digest/tg-digest-delivery/
+skills/tg-digest/x-digest-telegram/

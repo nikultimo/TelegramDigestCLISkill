@@ -1,5 +1,9 @@
+import asyncio
+from types import SimpleNamespace
+
 from typer.testing import CliRunner
 
+from tg_digest import cli
 from tg_digest.cli import app
 
 
@@ -160,3 +164,109 @@ def test_check_reports_configured_openai_vars(tmp_path, monkeypatch):
     assert "✅ OPENAI_BASE_URL" in result.output
     assert "✅ OPENAI_API_KEY" in result.output
     assert "✅ OPENAI_MODEL" in result.output
+
+
+def test_dry_run_does_not_insert_digest_items_and_uses_preview_file(tmp_path, monkeypatch):
+    settings = SimpleNamespace(
+        scrape_limit=40,
+        openai_base_url="http://llm.test/v1",
+        openai_api_key="test",
+        openai_model="test-model",
+        tg_api_id=0,
+        tg_api_hash="",
+        tg_session="",
+        tg_bot_token="",
+        tg_chat_id="",
+        digest_output_dir=tmp_path,
+        db_path=tmp_path / "digest.db",
+    )
+    monkeypatch.setattr(cli, "_ensure_db", lambda: settings)
+    monkeypatch.setattr(cli.db, "get_active_channels", lambda _path: [{"id": 1, "name": "demo"}])
+
+    async def fake_fetch(*args, **kwargs):
+        return {
+            1: [
+                SimpleNamespace(
+                    post_id="1",
+                    text="Deep agent architecture",
+                    url="https://t.me/demo/1",
+                    timestamp="2026-07-18T10:00:00+00:00",
+                )
+            ]
+        }
+
+    monkeypatch.setattr(cli.scraper, "fetch_all_channels", fake_fetch)
+    monkeypatch.setattr(
+        cli.db,
+        "insert_post",
+        lambda *args, **kwargs: SimpleNamespace(inserted=True, timestamp_updated=False),
+    )
+    post = {
+        "db_id": 1,
+        "channel": "demo",
+        "text": "Deep agent architecture",
+        "url": "https://t.me/demo/1",
+        "timestamp": "2026-07-18T10:00:00+00:00",
+    }
+    monkeypatch.setattr(cli.db, "get_posts_for_digest", lambda *args: [post])
+    monkeypatch.setattr(
+        cli.db,
+        "get_digest_range_stats",
+        lambda *args: {
+            "dated_in_range": 1,
+            "already_digested": 0,
+            "eligible": 1,
+            "unknown_dates": 0,
+        },
+    )
+    monkeypatch.setattr(cli.db, "get_topic_weights", lambda _path: {})
+    monkeypatch.setattr(
+        cli.db,
+        "get_preference_profile",
+        lambda _path: {"likes_text": "agents", "dislikes_text": "", "notes_text": "", "min_score": 7},
+    )
+
+    scored = {
+        **post,
+        "score": 9.0,
+        "topics": ["ai agents"],
+        "score_reason": "Deep",
+        "score_components": {"depth": 3},
+    }
+
+    async def fake_score(*args, **kwargs):
+        return [scored], 0
+
+    async def fake_digest(*args, **kwargs):
+        return [
+            {
+                "category": "learn",
+                "topic_area": "ai_ml",
+                "title": "Архитектура агента",
+                "description": "Практический разбор.",
+                "primary_url": post["url"],
+                "sources": [post["url"]],
+                "post_indices": [0],
+                "_post": scored,
+                "_posts": [scored],
+            }
+        ]
+
+    monkeypatch.setattr(cli.filt, "score_posts", fake_score)
+    monkeypatch.setattr(cli.summarizer, "build_digest", fake_digest)
+    monkeypatch.setattr(
+        cli.db,
+        "insert_digest_item",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("dry run persisted an item")),
+    )
+    written = {}
+
+    def fake_write(content, output_dir, stem):
+        written["stem"] = stem
+        return output_dir / f"{stem}.md"
+
+    monkeypatch.setattr(cli.deliver, "write_md", fake_write)
+
+    asyncio.run(cli._run_digest(dry_run=True, range_name="today"))
+
+    assert written["stem"].endswith(".preview")
