@@ -18,19 +18,19 @@ cp .env.example .env
 
 | Variable | Description | Example |
 |---|---|---|
-| `OPENAI_BASE_URL` | Any OpenAI-compatible endpoint | `https://api.openai.com/v1` |
+| `OPENAI_BASE_URL` | OpenAI-compatible endpoint with JSON Schema support | `https://api.openai.com/v1` |
 | `OPENAI_API_KEY` | API key | `sk-...` or `ollama` |
 | `OPENAI_MODEL` | Model name | `gpt-4o-mini`, `mistral`, `hermes-3` |
 | `TG_BOT_TOKEN` | Telegram bot token (optional) | from @BotFather |
 | `TG_CHAT_ID` | Your Telegram chat ID (optional) | message @userinfobot |
-| `TG_API_ID` | Telegram account API ID for `sync` (optional) | from https://my.telegram.org/apps |
-| `TG_API_HASH` | Telegram account API hash for `sync` (optional) | from https://my.telegram.org/apps |
+| `TG_API_ID` | Telegram API ID for `sync` and authorized MTProto fallback (optional) | from https://my.telegram.org/apps |
+| `TG_API_HASH` | Telegram API hash for `sync` and authorized MTProto fallback (optional) | from https://my.telegram.org/apps |
 
 Optional:
 - `SCRAPE_LIMIT` — max posts per channel per run (default: 20)
 - `DIGEST_OUTPUT_DIR` — where to save .md files (default: `./digest_output`)
 - `DB_PATH` — SQLite path (default: `./data/tg_digest.db`)
-- `TG_SESSION` — Telethon session path for `sync` (default: `./data/tg_session`)
+- `TG_SESSION` — Telethon session path for `sync` and fallback (default: `./data/tg_session`)
 - `TG_DIGEST_HOME` — project root for resolving `.env` and relative paths when
   running from another working directory (auto-detected with an editable install)
 
@@ -176,18 +176,22 @@ Before committing or publishing this repository:
 
 ## Notes for Agents
 
-- All LLM calls use JSON mode — responses are structured and parseable
+- Ranking and summarization use temperature-zero JSON Schema output with local validation
 - The SQLite DB is the source of truth; digest item IDs in the output are DB row IDs
-- `--dry-run` is safe to use anytime; it writes the `.md` file but skips Telegram
-- Digest date ranges use Telegram post publish dates converted to the local calendar day and skip unknown-date posts until backfilled
+- `--dry-run` writes `*.preview.md`, skips Telegram, creates no digest items or feedback IDs, and does not consume posts; fetched posts are still cached
+- Digest date ranges use Telegram post publish dates converted to the Moscow calendar day and skip unknown-date posts until backfilled
 - Readable preferences live in SQLite `preference_profile`; learned feedback weights live in `topic_weights`
-- Digest items store scored topics; feedback uses those topics first and only falls back to LLM extraction for old rows
+- Digest items store score components/reasons, normalized topics, topic area, and every merged source; feedback uses stored topics first
 - The readable profile is the primary relevance source; topic weights are only weak fine-tuning
-- `run` drops scored posts below the profile `min_score` threshold before summarization, then keeps only the top 20 by score for that run — posts beyond that cap stay in the DB for a later run
+- The scorer reads 3,000 characters per post in batches of 12 and sees up to 15 strongest positive plus 15 strongest negative weights
+- `run` drops posts below `min_score`, sends at most the top 25 to the summarizer, and renders at most 12 final items; at most two score-5/6 borderline items may survive when distinctly useful
 - `profile tune` adjusts `min_score` for digest-volume requests ("показывай больше" lowers it, "stricter" raises it) and preserves it otherwise
 - Digest output is Russian, with emoji section headers, visible item IDs like `#42`, `━━━━━━━━━━━━━━━` separators, and compact numbered source links like `[1](https://t.me/channel/1234)` (renders as a clickable `[1]` in Telegram, not a visible URL)
 - Within each topic/category section, items are ordered by relevance score, highest first
+- The digest prints a funnel with fetched, dated, eligible, threshold-passing, capped, merged, omitted, and failed-channel counts
+- Final digest validation rejects internal editorial references such as `дублирует пост 3` and retries summarization
 - The scraper only supports public channels (those with a `t.me/s/` preview URL)
+- If all preview requests fail, `run` may use an already-authorized Telethon session; it never starts interactive login and requires a prior human `sync`
 - `tg-digest check` verifies env vars, DB, and active channels — safe to call anytime, no LLM calls
 - `tg-digest sync` and `tg-digest profile init` require human TTY input; automated agents should use `tg-digest channel add` and `tg-digest profile set` instead
 - On first run with no preferences, ask the user what they want/avoid and save it with `tg-digest profile init` (interactive); in automated context use `tg-digest profile set --likes "..." --dislikes "..."` directly; if skipped, scoring falls back to general software engineering value

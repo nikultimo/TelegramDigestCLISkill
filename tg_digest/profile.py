@@ -93,10 +93,15 @@ async def tune_profile(
     except (json.JSONDecodeError, ValueError) as e:
         raise RuntimeError(f"LLM returned invalid JSON while tuning the profile: {e}") from e
     raw_min_score = data.get("min_score")
+
+    def updated_text(key: str) -> str | None:
+        value = data.get(key)
+        return value if isinstance(value, str) and value.strip() else None
+
     return merge_profile(
         current,
-        likes_text=str(data.get("likes_text", "")),
-        dislikes_text=str(data.get("dislikes_text", "")),
-        notes_text=str(data.get("notes_text", "")),
+        likes_text=updated_text("likes_text"),
+        dislikes_text=updated_text("dislikes_text"),
+        notes_text=updated_text("notes_text"),
         min_score=float(raw_min_score) if raw_min_score is not None else None,
     )

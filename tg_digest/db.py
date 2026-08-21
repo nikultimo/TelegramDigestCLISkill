@@ -50,10 +50,21 @@ def init_db(db_path: Path) -> None:
                 post_id  INTEGER NOT NULL REFERENCES posts(id),
                 score    REAL NOT NULL,
                 category TEXT NOT NULL,
+                topic_area TEXT NOT NULL DEFAULT 'other',
                 summary  TEXT NOT NULL,
                 included INTEGER NOT NULL DEFAULT 1,
-                topics_json TEXT NOT NULL DEFAULT '[]'
+                topics_json TEXT NOT NULL DEFAULT '[]',
+                score_reason TEXT NOT NULL DEFAULT '',
+                score_components_json TEXT NOT NULL DEFAULT '{}'
             );
+
+            CREATE TABLE IF NOT EXISTS digest_item_sources (
+                digest_item_id INTEGER NOT NULL REFERENCES digest_items(id) ON DELETE CASCADE,
+                post_id        INTEGER NOT NULL REFERENCES posts(id),
+                PRIMARY KEY (digest_item_id, post_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_digest_item_sources_post_id
+                ON digest_item_sources(post_id);
 
             CREATE TABLE IF NOT EXISTS feedback (
                 id             INTEGER PRIMARY KEY,
@@ -79,6 +90,8 @@ def init_db(db_path: Path) -> None:
         """)
         _migrate_posts_published_at(conn)
         _migrate_digest_items_topics(conn)
+        _migrate_digest_items_metadata(conn)
+        _migrate_digest_item_sources(conn)
 
 
 def _migrate_posts_published_at(conn: sqlite3.Connection) -> None:
@@ -91,6 +104,36 @@ def _migrate_digest_items_topics(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(digest_items)").fetchall()}
     if "topics_json" not in columns:
         conn.execute("ALTER TABLE digest_items ADD COLUMN topics_json TEXT NOT NULL DEFAULT '[]'")
+
+
+def _migrate_digest_items_metadata(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(digest_items)").fetchall()}
+    additions = {
+        "topic_area": "TEXT NOT NULL DEFAULT 'other'",
+        "score_reason": "TEXT NOT NULL DEFAULT ''",
+        "score_components_json": "TEXT NOT NULL DEFAULT '{}'",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE digest_items ADD COLUMN {name} {definition}")
+
+
+def _migrate_digest_item_sources(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS digest_item_sources (
+               digest_item_id INTEGER NOT NULL REFERENCES digest_items(id) ON DELETE CASCADE,
+               post_id        INTEGER NOT NULL REFERENCES posts(id),
+               PRIMARY KEY (digest_item_id, post_id)
+           )"""
+    )
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS idx_digest_item_sources_post_id
+           ON digest_item_sources(post_id)"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO digest_item_sources (digest_item_id, post_id)
+           SELECT id, post_id FROM digest_items"""
+    )
 
 
 @contextmanager
@@ -152,7 +195,7 @@ def insert_post(
     text: str,
     url: str,
     published_at: str | None = None,
-) -> int | None:
+) -> InsertPostResult:
     """Insert post and backfill missing publish time for existing rows."""
     with get_conn(db_path) as conn:
         try:
@@ -199,7 +242,7 @@ def get_posts_for_digest(db_path: Path, start_date: str, end_date: str) -> list[
                WHERE c.active = 1
                  AND p.published_at IS NOT NULL
                  AND NOT EXISTS (
-                   SELECT 1 FROM digest_items di WHERE di.post_id = p.id
+                   SELECT 1 FROM digest_item_sources dis WHERE dis.post_id = p.id
                  )
                ORDER BY p.published_at, p.id""",
         ).fetchall()
@@ -217,6 +260,40 @@ def get_posts_for_digest(db_path: Path, start_date: str, end_date: str) -> list[
                 "timestamp": post.get("timestamp") or post["scraped_at"],
             })
     return posts
+
+
+def get_digest_range_stats(db_path: Path, start_date: str, end_date: str) -> dict[str, int]:
+    """Count dated, consumed, and eligible active-channel posts in a local date range."""
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            """SELECT p.id, p.published_at,
+                      EXISTS (
+                        SELECT 1 FROM digest_item_sources dis WHERE dis.post_id = p.id
+                      ) AS consumed
+               FROM posts p
+               JOIN channels c ON c.id = p.channel_id
+               WHERE c.active = 1 AND p.published_at IS NOT NULL"""
+        ).fetchall()
+        unknown_dates = conn.execute(
+            """SELECT COUNT(*)
+               FROM posts p JOIN channels c ON c.id = p.channel_id
+               WHERE c.active = 1 AND p.published_at IS NULL"""
+        ).fetchone()[0]
+
+    in_range = [
+        row
+        for row in rows
+        if start <= _local_date_from_iso(row["published_at"]) <= end
+    ]
+    consumed = sum(bool(row["consumed"]) for row in in_range)
+    return {
+        "dated_in_range": len(in_range),
+        "already_digested": consumed,
+        "eligible": len(in_range) - consumed,
+        "unknown_dates": int(unknown_dates),
+    }
 
 
 def _date_from_iso(value: str) -> date:
@@ -243,15 +320,37 @@ def insert_digest_item(
     category: str,
     summary: str,
     topics: list[str] | None = None,
+    topic_area: str = "other",
+    score_reason: str = "",
+    score_components: dict | None = None,
+    source_post_ids: list[int] | None = None,
 ) -> int:
     with get_conn(db_path) as conn:
         cur = conn.execute(
             """INSERT INTO digest_items
-               (run_date, post_id, score, category, summary, topics_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (run_date, post_db_id, score, category, summary, json.dumps(topics or [], ensure_ascii=False)),
+               (run_date, post_id, score, category, topic_area, summary,
+                topics_json, score_reason, score_components_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                run_date,
+                post_db_id,
+                score,
+                category,
+                topic_area,
+                summary,
+                json.dumps(topics or [], ensure_ascii=False),
+                score_reason,
+                json.dumps(score_components or {}, ensure_ascii=False),
+            ),
         )
-        return cur.lastrowid
+        digest_item_id = int(cur.lastrowid)
+        source_ids = dict.fromkeys([post_db_id, *(source_post_ids or [])])
+        conn.executemany(
+            """INSERT OR IGNORE INTO digest_item_sources (digest_item_id, post_id)
+               VALUES (?, ?)""",
+            ((digest_item_id, source_id) for source_id in source_ids),
+        )
+        return digest_item_id
 
 
 def get_digest_item(db_path: Path, item_id: int) -> dict | None:
@@ -269,6 +368,17 @@ def get_digest_item(db_path: Path, item_id: int) -> dict | None:
         item["topics"] = json.loads(item.get("topics_json") or "[]")
     except json.JSONDecodeError:
         item["topics"] = []
+    try:
+        item["score_components"] = json.loads(item.get("score_components_json") or "{}")
+    except json.JSONDecodeError:
+        item["score_components"] = {}
+    with get_conn(db_path) as conn:
+        source_rows = conn.execute(
+            """SELECT post_id FROM digest_item_sources
+               WHERE digest_item_id = ? ORDER BY post_id""",
+            (item_id,),
+        ).fetchall()
+    item["source_post_ids"] = [row["post_id"] for row in source_rows]
     return item
 
 

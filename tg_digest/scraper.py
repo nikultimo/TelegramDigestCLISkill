@@ -86,15 +86,99 @@ async def fetch_channel(url: str, limit: int = 20) -> list[RawPost]:
     raise RuntimeError(f"Failed to fetch {url}: {last_err}")
 
 
-async def fetch_all_channels(channels: list[dict], limit: int = 20) -> dict[int, list[RawPost]]:
-    """Fetch all channels with jitter between requests. Returns {channel_id: posts}."""
+async def fetch_all_channels(
+    channels: list[dict],
+    limit: int = 20,
+    *,
+    failures: list[dict] | None = None,
+) -> dict[int, list[RawPost]]:
+    """Fetch all channels concurrently with a semaphore for rate limiting. Returns {channel_id: posts}."""
+    sem = asyncio.Semaphore(10)  # max 10 concurrent requests
+
+    async def _fetch_one(ch: dict) -> tuple[int, list[RawPost]]:
+        async with sem:
+            await asyncio.sleep(0.3 + random.random() * 0.5)  # minimal jitter
+            try:
+                posts = await fetch_channel(ch["url"], limit)
+                return ch["id"], posts
+            except RuntimeError as exc:
+                if failures is not None:
+                    failures.append({"id": ch["id"], "name": ch["name"], "error": str(exc)})
+                return ch["id"], []
+
+    tasks = [_fetch_one(ch) for ch in channels]
     results: dict[int, list[RawPost]] = {}
-    for i, ch in enumerate(channels):
-        if i > 0:
-            await asyncio.sleep(1.5 + random.random())
-        try:
-            posts = await fetch_channel(ch["url"], limit)
-            results[ch["id"]] = posts
-        except RuntimeError:
-            results[ch["id"]] = []
+    for ch_id, posts in await asyncio.gather(*tasks):
+        results[ch_id] = posts
+    return results
+
+
+# ── Telethon fallback scraper (used when t.me DNS is blocked) ────────────
+
+def _channel_name(url: str) -> str:
+    """Extract the channel username from a t.me/s/ URL."""
+    return url.rstrip("/").split("/")[-1].lstrip("@").lower()
+
+
+async def fetch_all_channels_telethon(
+    channels: list[dict],
+    session_path: str,
+    api_id: int,
+    api_hash: str,
+    limit: int = 20,
+    failures: list[dict] | None = None,
+) -> dict[int, list[RawPost]]:
+    """Fetch all channels via the Telegram client API (MTProto) — bypasses t.me DNS.
+
+    Uses the existing Telethon session to authenticate.
+    Returns {channel_id: posts} same shape as fetch_all_channels.
+    """
+    from telethon import TelegramClient
+    from telethon.errors import RPCError
+
+    client = TelegramClient(str(session_path), api_id, api_hash)
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        raise RuntimeError(
+            "Telethon session is not authorized; run `tg-digest sync` "
+            "interactively before using the fallback"
+        )
+
+    sem = asyncio.Semaphore(5)  # 5 concurrent MTProto requests
+
+    async def _fetch_one(ch: dict) -> tuple[int, list[RawPost]]:
+        async with sem:
+            name = _channel_name(ch["url"])
+            try:
+                entity = await client.get_entity(name)
+                messages = await client.get_messages(entity, limit=limit)
+            except (ValueError, RPCError) as exc:
+                if failures is not None:
+                    failures.append({"id": ch["id"], "name": name, "error": str(exc)})
+                return ch["id"], []
+
+            posts: list[RawPost] = []
+            for msg in reversed(messages):
+                if not msg.text:
+                    continue
+                # Extract text, removing entities formatting artifacts
+                text = msg.text.strip()
+                if not text:
+                    continue
+                timestamp = msg.date.isoformat() if msg.date else ""
+                posts.append(RawPost(
+                    post_id=str(msg.id),
+                    text=text,
+                    url=f"https://t.me/{name}/{msg.id}",
+                    timestamp=timestamp,
+                ))
+            return ch["id"], posts
+
+    tasks = [_fetch_one(ch) for ch in channels]
+    results: dict[int, list[RawPost]] = {}
+    for ch_id, posts in await asyncio.gather(*tasks):
+        results[ch_id] = posts
+
+    await client.disconnect()
     return results

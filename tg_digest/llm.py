@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import httpx
 
 
@@ -10,9 +11,16 @@ async def chat(
     api_key: str,
     model: str,
     json_mode: bool = False,
+    response_schema: dict | None = None,
+    temperature: float | None = None,
+    require_parameters: bool = False,
+    return_metadata: bool = False,
     timeout: float = 60.0,
-) -> str:
+    max_attempts: int = 3,
+) -> str | tuple[str, dict]:
     """Call any OpenAI-compatible chat endpoint. Returns response text."""
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -20,26 +28,65 @@ async def chat(
         "X-Title": "tg-digest",
     }
     payload: dict = {"model": model, "messages": messages}
-    if json_mode:
+    if response_schema is not None:
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "tg_digest_response",
+                "strict": True,
+                "schema": response_schema,
+            },
+        }
+    elif json_mode:
         payload["response_format"] = {"type": "json_object"}
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if require_parameters:
+        payload["provider"] = {"require_parameters": True}
 
     # Ensure base_url ends with / so httpx keeps the path prefix intact
     url = base_url.rstrip("/") + "/chat/completions"
 
     last_err: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(max_attempts):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, headers=headers, json=payload)
                 if resp.status_code >= 500:
                     raise httpx.HTTPStatusError("server error", request=resp.request, response=resp)
                 resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"]
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                if return_metadata:
+                    return content, {
+                        "id": data.get("id"),
+                        "model": data.get("model", model),
+                        "usage": data.get("usage", {}),
+                    }
+                return content
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-            last_err = exc
-            await asyncio.sleep(2 ** attempt)
+            if isinstance(exc, httpx.HTTPStatusError):
+                try:
+                    provider_message = exc.response.json().get("error", {}).get("message")
+                except (ValueError, AttributeError):
+                    provider_message = None
+                if provider_message:
+                    provider_message = re.sub(
+                        r"(/keys/)[A-Za-z0-9_-]+",
+                        r"\1<redacted>",
+                        provider_message,
+                    )
+                    last_err = RuntimeError(
+                        f"HTTP {exc.response.status_code}: {provider_message}"
+                    )
+                else:
+                    last_err = exc
+            else:
+                last_err = exc
+            if attempt + 1 < max_attempts:
+                await asyncio.sleep(2 ** attempt)
 
-    raise RuntimeError(f"LLM call failed after 3 attempts: {last_err}")
+    raise RuntimeError(f"LLM call failed after {max_attempts} attempt(s): {last_err}")
 
 
 def parse_json(text: str) -> dict | list:
