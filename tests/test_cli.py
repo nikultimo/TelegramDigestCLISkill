@@ -1,4 +1,5 @@
 import asyncio
+import re
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -9,12 +10,13 @@ from tg_digest.cli import app
 
 def test_run_help_shows_range_options():
     result = CliRunner().invoke(app, ["run", "--help"])
+    output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.output)
 
     assert result.exit_code == 0
-    assert "--range" in result.output
-    assert "--from" in result.output
-    assert "--to" in result.output
-    assert "--days" in result.output
+    assert "--range" in output
+    assert "--from" in output
+    assert "--to" in output
+    assert "--days" in output
 
 
 def test_run_rejects_reversed_custom_range(tmp_path, monkeypatch):
