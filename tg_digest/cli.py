@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -21,7 +21,7 @@ app.add_typer(db_app, name="db")
 
 console = Console()
 
-DIGEST_TOP_N = 20  # max items per digest, applied after min_score filtering
+DIGEST_TOP_N = 25  # max candidates sent to the summarizer after thresholding
 
 
 def _settings():
@@ -102,7 +102,7 @@ async def _run_digest(
     to_date: str | None = None,
 ) -> None:
     s = _ensure_db()
-    run_date = date.today().isoformat()
+    run_date = datetime.now(db.LOCAL_TZ).date().isoformat()
     try:
         digest_range = resolve_date_range(
             range_name,
@@ -120,7 +120,27 @@ async def _run_digest(
         return
 
     console.print(f"[bold]Fetching {len(channels)} channel(s) for {digest_range.label}...[/bold]")
-    channel_posts = await scraper.fetch_all_channels(channels, limit=s.scrape_limit)
+    fetch_failures: list[dict] = []
+    channel_posts = await scraper.fetch_all_channels(
+        channels,
+        limit=s.scrape_limit,
+        failures=fetch_failures,
+    )
+
+    # If the HTTP scraper returned 0 posts (likely t.me DNS block), fall back to Telethon
+    total_http = sum(len(v) for v in channel_posts.values())
+    if total_http == 0 and s.tg_api_id and s.tg_api_hash and s.tg_session:
+        console.print("[yellow]HTTP scraper returned 0 posts — trying Telethon (MTProto) fallback...[/yellow]")
+        fetch_failures.clear()
+        channel_posts = await scraper.fetch_all_channels_telethon(
+            channels,
+            session_path=s.tg_session,
+            api_id=s.tg_api_id,
+            api_hash=s.tg_api_hash,
+            limit=s.scrape_limit,
+            failures=fetch_failures,
+        )
+        console.print(f"  Telethon fallback: {sum(len(v) for v in channel_posts.values())} posts fetched")
 
     # Deduplicate by post ID against DB. Digest candidates are selected from DB by date range.
     new_count = 0
@@ -141,14 +161,53 @@ async def _run_digest(
         digest_range.start.isoformat(),
         digest_range.end.isoformat(),
     )
+    range_stats = db.get_digest_range_stats(
+        s.db_path,
+        digest_range.start.isoformat(),
+        digest_range.end.isoformat(),
+    )
 
     console.print(
         f"  {total_seen} posts fetched · {new_count} new · "
         f"{timestamp_updates} timestamps updated · {len(digest_posts)} in range"
     )
+    if fetch_failures:
+        failed_names = ", ".join(failure["name"] for failure in fetch_failures[:8])
+        suffix = "…" if len(fetch_failures) > 8 else ""
+        console.print(
+            f"[yellow]⚠  {len(fetch_failures)} channel(s) failed: "
+            f"{failed_names}{suffix}[/yellow]"
+        )
 
     if not digest_posts:
         console.print(f"[green]Nothing new for {digest_range.label}.[/green]")
+        _print_funnel(
+            fetched=total_seen,
+            range_stats=range_stats,
+            below_threshold=0,
+            passed_threshold=0,
+            sent_to_summarizer=0,
+            final_items=0,
+            channel_failures=len(fetch_failures),
+        )
+        _write_empty_preview(
+            dry_run=dry_run,
+            settings=s,
+            digest_range=digest_range,
+            channel_count=len(channels),
+            fetched=total_seen,
+            funnel={
+                "fetched": total_seen,
+                **range_stats,
+                "below_threshold": 0,
+                "passed_threshold": 0,
+                "cap_dropped": 0,
+                "sent_to_summarizer": 0,
+                "merged_sources": 0,
+                "summarizer_dropped": 0,
+                "channel_failures": len(fetch_failures),
+            },
+        )
         return
 
     weights = db.get_topic_weights(s.db_path)
@@ -166,21 +225,51 @@ async def _run_digest(
             f"those posts may be missing from this digest.[/yellow]"
         )
     min_score = float((preference_profile or {}).get("min_score", profile.DEFAULT_MIN_SCORE))
-    scored = filt.filter_by_min_score(scored, min_score)
-    if not scored:
+    passed = filt.filter_by_min_score(scored, min_score)
+    below_threshold = len(scored) - len(passed)
+    if not passed:
         console.print(f"[green]Nothing relevant enough for {digest_range.label} (min score {min_score:.1f}).[/green]")
+        _print_funnel(
+            fetched=total_seen,
+            range_stats=range_stats,
+            below_threshold=below_threshold,
+            passed_threshold=0,
+            sent_to_summarizer=0,
+            final_items=0,
+            channel_failures=len(fetch_failures),
+        )
+        _write_empty_preview(
+            dry_run=dry_run,
+            settings=s,
+            digest_range=digest_range,
+            channel_count=len(channels),
+            fetched=total_seen,
+            funnel={
+                "fetched": total_seen,
+                **range_stats,
+                "below_threshold": below_threshold,
+                "passed_threshold": 0,
+                "cap_dropped": 0,
+                "sent_to_summarizer": 0,
+                "merged_sources": 0,
+                "summarizer_dropped": 0,
+                "channel_failures": len(fetch_failures),
+            },
+        )
         return
-    if len(scored) > DIGEST_TOP_N:
+    cap_dropped = max(0, len(passed) - DIGEST_TOP_N)
+    if cap_dropped:
         console.print(
-            f"[yellow]⚠  {len(scored)} posts passed min score {min_score:.1f} — "
+            f"[yellow]⚠  {len(passed)} posts passed min score {min_score:.1f} — "
             f"keeping the top {DIGEST_TOP_N} by score.[/yellow]"
         )
-        scored = scored[:DIGEST_TOP_N]
+        passed = passed[:DIGEST_TOP_N]
 
-    console.print(f"[bold]Building digest from top {len(scored)} posts...[/bold]")
+    console.print(f"[bold]Building digest from top {len(passed)} posts...[/bold]")
     try:
         items = await summarizer.build_digest(
-            scored,
+            passed,
+            preference_profile,
             base_url=s.openai_base_url,
             api_key=s.openai_api_key,
             model=s.openai_model,
@@ -189,31 +278,82 @@ async def _run_digest(
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
 
-    # persist digest items to DB and attach DB IDs
-    for item in items:
-        post = item.get("_post", {})
-        post_db_id = post.get("db_id")
-        if post_db_id is None:
-            continue
-        db_id = db.insert_digest_item(
-            s.db_path, run_date, post_db_id,
-            post.get("score", 0.0),
-            item.get("category", "read"),
-            item.get("description", ""),
-            topics=post.get("topics", []),
-        )
-        item["_db_id"] = db_id
+    used_indices = {
+        index
+        for item in items
+        for index in item.get("post_indices", [])
+        if isinstance(index, int)
+    }
+    merged_sources = sum(max(0, len(item.get("_posts", [])) - 1) for item in items)
+    summarizer_dropped = max(0, len(passed) - len(used_indices))
+    funnel = {
+        "fetched": total_seen,
+        **range_stats,
+        "below_threshold": below_threshold,
+        "passed_threshold": len(passed) + cap_dropped,
+        "cap_dropped": cap_dropped,
+        "sent_to_summarizer": len(passed),
+        "merged_sources": merged_sources,
+        "summarizer_dropped": summarizer_dropped,
+        "channel_failures": len(fetch_failures),
+    }
 
-    digest_md = deliver.render_digest(items, digest_range.label, len(channels), total_seen)
+    # Dry runs preview the result without consuming posts or creating feedback IDs.
+    if not dry_run:
+        for item in items:
+            post = item.get("_post", {})
+            source_posts = item.get("_posts", [])
+            post_db_id = post.get("db_id")
+            if post_db_id is None:
+                continue
+            topics = sorted(
+                {
+                    topic
+                    for source_post in source_posts
+                    for topic in source_post.get("topics", [])
+                    if topic
+                }
+            )
+            source_post_ids = [
+                source_post["db_id"]
+                for source_post in source_posts
+                if source_post.get("db_id") is not None
+            ]
+            db_id = db.insert_digest_item(
+                s.db_path,
+                run_date,
+                post_db_id,
+                post.get("score", 0.0),
+                item.get("category", "read"),
+                item.get("description", ""),
+                topics=topics,
+                topic_area=item.get("topic_area", "other"),
+                score_reason=post.get("score_reason", ""),
+                score_components=post.get("score_components", {}),
+                source_post_ids=source_post_ids,
+            )
+            item["_db_id"] = db_id
+
+    digest_md = deliver.render_digest(
+        items,
+        digest_range.label,
+        len(channels),
+        total_seen,
+        funnel=funnel,
+        feedback_enabled=not dry_run,
+    )
 
     # always write .md file
-    md_path = deliver.write_md(digest_md, s.digest_output_dir, digest_range.output_stem)
+    output_stem = digest_range.output_stem if not dry_run else f"{digest_range.output_stem}.preview"
+    md_path = deliver.write_md(digest_md, s.digest_output_dir, output_stem)
     console.print(f"[green]Digest saved:[/green] {md_path}")
 
     console.print("\n" + digest_md)
 
     if dry_run:
-        console.print("\n[yellow]--dry-run: Telegram message not sent.[/yellow]")
+        console.print(
+            "\n[yellow]--dry-run: Telegram message not sent; digest items were not stored.[/yellow]"
+        )
     else:
         console.print("[bold]Sending Telegram message...[/bold]")
         try:
@@ -257,6 +397,53 @@ async def _give_feedback(item_id: int, sig: int) -> None:
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
+
+
+def _print_funnel(
+    *,
+    fetched: int,
+    range_stats: dict,
+    below_threshold: int,
+    passed_threshold: int,
+    sent_to_summarizer: int,
+    final_items: int,
+    channel_failures: int,
+) -> None:
+    console.print(
+        "[dim]Funnel: "
+        f"fetched {fetched} → dated {range_stats.get('dated_in_range', 0)} → "
+        f"eligible {range_stats.get('eligible', 0)} → passed {passed_threshold} → "
+        f"summarizer {sent_to_summarizer} → final {final_items}; "
+        f"already digested {range_stats.get('already_digested', 0)}, "
+        f"below threshold {below_threshold}, channel failures {channel_failures}[/dim]"
+    )
+
+
+def _write_empty_preview(
+    *,
+    dry_run: bool,
+    settings,
+    digest_range,
+    channel_count: int,
+    fetched: int,
+    funnel: dict,
+) -> None:
+    if not dry_run:
+        return
+    digest_md = deliver.render_digest(
+        [],
+        digest_range.label,
+        channel_count,
+        fetched,
+        funnel=funnel,
+        feedback_enabled=False,
+    )
+    path = deliver.write_md(
+        digest_md,
+        settings.digest_output_dir,
+        f"{digest_range.output_stem}.preview",
+    )
+    console.print(f"[green]Preview saved:[/green] {path}")
 
 
 # ── profile commands ──────────────────────────────────────────────────────────
@@ -465,6 +652,17 @@ async def _db_backfill_dates() -> None:
 
     console.print(f"[bold]Backfilling publish dates from {len(channels)} channel(s)...[/bold]")
     channel_posts = await scraper.fetch_all_channels(channels, limit=s.scrape_limit)
+
+    total_http = sum(len(v) for v in channel_posts.values())
+    if total_http == 0 and s.tg_api_id and s.tg_api_hash and s.tg_session:
+        console.print("[yellow]HTTP scraper returned 0 posts — trying Telethon (MTProto) fallback...[/yellow]")
+        channel_posts = await scraper.fetch_all_channels_telethon(
+            channels,
+            session_path=s.tg_session,
+            api_id=s.tg_api_id,
+            api_hash=s.tg_api_hash,
+            limit=s.scrape_limit,
+        )
     total_seen = 0
     timestamp_updates = 0
     for ch in channels:

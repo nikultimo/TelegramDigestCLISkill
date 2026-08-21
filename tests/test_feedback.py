@@ -5,6 +5,12 @@ import pytest
 from tg_digest import db, feedback
 
 
+def test_normalize_topic_collapses_common_aliases():
+    assert feedback.normalize_topic("Langraph") == "langgraph"
+    assert feedback.normalize_topic("autonomous-agents") == "ai agents"
+    assert feedback.normalize_topic("LLM_Inference") == "llm inference"
+
+
 @pytest.mark.asyncio
 async def test_feedback_uses_stored_item_topics_without_llm(tmp_path, monkeypatch):
     db_path = tmp_path / "digest.db"

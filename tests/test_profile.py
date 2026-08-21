@@ -33,6 +33,18 @@ def test_tune_preserves_current_min_score_when_llm_omits_it(monkeypatch):
     assert result["min_score"] == 6.0
 
 
+def test_tune_preserves_readable_fields_when_llm_returns_empty_values(monkeypatch):
+    result, _ = _tune(
+        "показывай больше",
+        monkeypatch,
+        '{"likes_text": "", "dislikes_text": "", "notes_text": "", "min_score": 5.0}',
+    )
+
+    assert result["likes_text"] == CURRENT["likes_text"]
+    assert result["dislikes_text"] == CURRENT["dislikes_text"]
+    assert result["notes_text"] == CURRENT["notes_text"]
+
+
 def test_tune_applies_min_score_returned_by_llm(monkeypatch):
     result, _ = _tune(
         "показывай больше",

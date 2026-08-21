@@ -6,31 +6,56 @@ import re
 import httpx
 
 
-CATEGORIES = ["do", "learn", "read", "practice"]
-TOPIC_AREAS = ["ai_ml", "backend", "career", "other"]
+CATEGORIES = ["try", "learn", "read", "practice"]
+TOPIC_AREAS = [
+    "ai_ml",
+    "backend_infra",
+    "career_business",
+    "health_fitness",
+    "travel",
+    "english",
+    "games_fantasy",
+    "cars_tech",
+    "other",
+]
 
 TOPIC_HEADERS = {
-    "ai_ml":   "🤖 AI / ML",
-    "backend": "⚙️ Backend / Highload",
-    "career":  "💼 Карьера / Деньги",
-    "other":   "📌 Разное",
+    "ai_ml": "🤖 AI / ML",
+    "backend_infra": "⚙️ Backend / Инфраструктура",
+    "career_business": "💼 Карьера / Бизнес",
+    "health_fitness": "🏋️ Здоровье / Фитнес",
+    "travel": "✈️ Путешествия",
+    "english": "🗣 Английский",
+    "games_fantasy": "🐉 Игры / Fantasy",
+    "cars_tech": "🚙 Авто / Техника",
+    "other": "📌 Разное",
 }
 ACTION_PREFIXES = {
-    "do":       "🛠 Попробовать",
-    "learn":    "📚 Изучить",
-    "read":     "📰 Прочитать",
+    "try": "🛠 Попробовать",
+    "learn": "📚 Изучить",
+    "read": "📰 Прочитать",
     "practice": "💻 Попрактиковать",
 }
 SECTION_SEPARATOR = "━━━━━━━━━━━━━━━"
+LEGACY_TOPICS = {"backend": "backend_infra", "career": "career_business"}
+LEGACY_ACTIONS = {"do": "try"}
 
 
-def render_digest(items: list[dict], run_date: str, channel_count: int, post_count: int) -> str:
+def render_digest(
+    items: list[dict],
+    run_date: str,
+    channel_count: int,
+    post_count: int,
+    funnel: dict | None = None,
+    feedback_enabled: bool = True,
+) -> str:
     """Render digest items grouped by topic area, then by action category."""
     lines = [f"🗓 AI ДАЙДЖЕСТ • {_format_digest_date(run_date)}", ""]
 
     by_topic: dict[str, list[dict]] = {t: [] for t in TOPIC_AREAS}
     for item in items:
         topic = item.get("topic_area", "other")
+        topic = LEGACY_TOPICS.get(topic, topic)
         if topic not in by_topic:
             topic = "other"
         by_topic[topic].append(item)
@@ -46,6 +71,7 @@ def render_digest(items: list[dict], run_date: str, channel_count: int, post_cou
         by_cat: dict[str, list[dict]] = {c: [] for c in CATEGORIES}
         for item in topic_items:
             cat = item.get("category", "read")
+            cat = LEGACY_ACTIONS.get(cat, cat)
             if cat not in by_cat:
                 cat = "read"
             by_cat[cat].append(item)
@@ -72,7 +98,30 @@ def render_digest(items: list[dict], run_date: str, channel_count: int, post_cou
 
     lines.append(SECTION_SEPARATOR)
     lines.append(f"Каналов: {channel_count} · Постов просмотрено: {post_count} · В дайджесте: {len(items)}")
-    lines.append("Для обратной связи: `tg-digest feedback <id> like|dislike`")
+    if funnel:
+        lines.append(
+            "Воронка: "
+            f"получено {funnel.get('fetched', 0)} → "
+            f"в диапазоне {funnel.get('dated_in_range', 0)} → "
+            f"кандидатов {funnel.get('eligible', 0)} → "
+            f"порог прошли {funnel.get('passed_threshold', 0)} → "
+            f"на суммаризацию {funnel.get('sent_to_summarizer', 0)} → "
+            f"итог {len(items)}"
+        )
+        lines.append(
+            "Отсев: "
+            f"уже использованы {funnel.get('already_digested', 0)} · "
+            f"ниже порога {funnel.get('below_threshold', 0)} · "
+            f"срезаны cap {funnel.get('cap_dropped', 0)} · "
+            f"объединены дубли {funnel.get('merged_sources', 0)} · "
+            f"суммаризатор исключил {funnel.get('summarizer_dropped', 0)} · "
+            f"без даты {funnel.get('unknown_dates', 0)} · "
+            f"ошибки каналов {funnel.get('channel_failures', 0)}"
+        )
+    if feedback_enabled:
+        lines.append("Для обратной связи: `tg-digest feedback <id> like|dislike`")
+    else:
+        lines.append("Предпросмотр: элементы не сохранены, feedback ID не создавались.")
     return "\n".join(lines)
 
 

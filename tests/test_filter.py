@@ -6,10 +6,16 @@ from tg_digest import filter as filt
 @pytest.mark.asyncio
 async def test_score_posts_includes_readable_profile_in_prompt(monkeypatch):
     prompts = []
+    calls = []
 
     async def fake_chat(messages, **kwargs):
         prompts.append(messages[0]["content"])
-        return '{"results": [{"index": 0, "score": 8.0, "topics": ["agents"]}]}'
+        calls.append(kwargs)
+        return (
+            '{"results": [{"index": 0, "score": 8.0, "topics": ["agents"], '
+            '"reason": "Concrete production case", "relevance": 3, "depth": 2, '
+            '"actionability": 2, "novelty": 1, "credibility": 2, "penalty": 0}]}'
+        )
 
     monkeypatch.setattr(filt.llm, "chat", fake_chat)
 
@@ -32,9 +38,13 @@ async def test_score_posts_includes_readable_profile_in_prompt(monkeypatch):
     assert "production agent systems" in prompts[0]
     assert "generic AI tool lists" in prompts[0]
     assert "prefer real numbers" in prompts[0]
-    assert "agents: 1.3x" in prompts[0]
+    assert "agents: 1.30x" in prompts[0]
     assert "primary source of relevance" in prompts[0]
     assert "weak secondary signal" in prompts[0]
+    assert scored[0]["score_components"]["depth"] == 2
+    assert scored[0]["score_reason"] == "Concrete production case"
+    assert calls[0]["response_schema"] == filt.SCORE_SCHEMA
+    assert calls[0]["temperature"] == 0.0
 
 
 @pytest.mark.asyncio
@@ -75,3 +85,38 @@ def test_missing_readable_profile_falls_back_to_broad_personal_profile():
     assert "travel" in block
     assert "World of Warcraft" in block
     assert "shallow" in block
+
+
+def test_balanced_weights_include_strong_positive_and_negative_signals():
+    block = filt._weights_block(
+        {
+            "agents": 2.0,
+            "backend": 1.5,
+            "neutral": 1.0,
+            "crypto": 0.3,
+            "nft": 0.2,
+        }
+    )
+
+    assert "agents: 2.00x" in block
+    assert "backend: 1.50x" in block
+    assert "crypto: 0.30x" in block
+    assert "nft: 0.20x" in block
+    assert "neutral" not in block
+
+
+def test_strict_validation_rejects_missing_component_fields():
+    with pytest.raises(ValueError, match="invalid relevance"):
+        filt._validate_results(
+            {
+                "results": [
+                    {
+                        "index": 0,
+                        "score": 8,
+                        "topics": ["agents"],
+                        "reason": "Useful",
+                    }
+                ]
+            },
+            {0},
+        )

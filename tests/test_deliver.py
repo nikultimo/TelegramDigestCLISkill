@@ -31,7 +31,7 @@ def test_render_digest_uses_russian_telegram_style():
     assert content.startswith("🗓 AI ДАЙДЖЕСТ • 08.07.2026")
     assert "━━━━━━━━━━━━━━━" in content
     assert "🤖 AI / ML" in content
-    assert "⚙️ Backend / Highload" in content
+    assert "⚙️ Backend / Инфраструктура" in content
     assert "🛠 Попробовать:" in content
     assert "📰 Прочитать:" in content
     assert "🔹 #7 Claude Code подключился к чужому серверу" in content
@@ -40,6 +40,33 @@ def test_render_digest_uses_russian_telegram_style():
     assert "Каналов: 3 · Постов просмотрено: 24 · В дайджесте: 2" in content
     assert "Для обратной связи: `tg-digest feedback <id> like|dislike`" in content
     assert "What to Read" not in content
+
+
+def test_render_digest_includes_funnel_and_preview_notice():
+    content = deliver.render_digest(
+        [],
+        "2026-07-08",
+        3,
+        24,
+        funnel={
+            "fetched": 24,
+            "dated_in_range": 10,
+            "eligible": 8,
+            "passed_threshold": 3,
+            "sent_to_summarizer": 3,
+            "already_digested": 2,
+            "below_threshold": 5,
+            "cap_dropped": 0,
+            "merged_sources": 1,
+            "summarizer_dropped": 0,
+            "channel_failures": 1,
+        },
+        feedback_enabled=False,
+    )
+
+    assert "получено 24 → в диапазоне 10 → кандидатов 8 → порог прошли 3" in content
+    assert "объединены дубли 1" in content
+    assert "feedback ID не создавались" in content
 
 
 def test_render_digest_sorts_items_by_score_within_section():

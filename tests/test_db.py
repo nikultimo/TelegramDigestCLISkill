@@ -205,3 +205,63 @@ def test_digest_item_round_trips_scored_topics(tmp_path: Path):
     )
 
     assert db.get_digest_item(db_path, item_id)["topics"] == ["ai agents", "architecture"]
+
+
+def test_merged_digest_sources_are_all_excluded_and_metadata_round_trips(tmp_path: Path):
+    db_path = tmp_path / "digest.db"
+    db.init_db(db_path)
+    db.add_channel(db_path, "https://t.me/s/demo", "demo")
+    channel_id = db.list_channels(db_path)[0]["id"]
+    first = db.insert_post(
+        db_path, channel_id, "1", "first", "https://t.me/demo/1",
+        "2026-07-08T10:00:00+00:00",
+    ).post_id
+    second = db.insert_post(
+        db_path, channel_id, "2", "duplicate", "https://t.me/demo/2",
+        "2026-07-08T11:00:00+00:00",
+    ).post_id
+
+    item_id = db.insert_digest_item(
+        db_path,
+        "2026-07-08",
+        first,
+        9.0,
+        "learn",
+        "summary",
+        topics=["ai agents"],
+        topic_area="ai_ml",
+        score_reason="Deep architecture",
+        score_components={"depth": 3},
+        source_post_ids=[first, second],
+    )
+
+    assert db.get_posts_for_digest(db_path, "2026-07-08", "2026-07-08") == []
+    item = db.get_digest_item(db_path, item_id)
+    assert item["source_post_ids"] == [first, second]
+    assert item["topic_area"] == "ai_ml"
+    assert item["score_reason"] == "Deep architecture"
+    assert item["score_components"] == {"depth": 3}
+
+
+def test_digest_range_stats_report_consumed_and_unknown_posts(tmp_path: Path):
+    db_path = tmp_path / "digest.db"
+    db.init_db(db_path)
+    db.add_channel(db_path, "https://t.me/s/demo", "demo")
+    channel_id = db.list_channels(db_path)[0]["id"]
+    consumed = db.insert_post(
+        db_path, channel_id, "1", "used", "https://t.me/demo/1",
+        "2026-07-08T10:00:00+00:00",
+    ).post_id
+    db.insert_post(
+        db_path, channel_id, "2", "eligible", "https://t.me/demo/2",
+        "2026-07-08T11:00:00+00:00",
+    )
+    db.insert_post(db_path, channel_id, "3", "unknown", "https://t.me/demo/3", None)
+    db.insert_digest_item(db_path, "2026-07-08", consumed, 8, "read", "used")
+
+    assert db.get_digest_range_stats(db_path, "2026-07-08", "2026-07-08") == {
+        "dated_in_range": 2,
+        "already_digested": 1,
+        "eligible": 1,
+        "unknown_dates": 1,
+    }

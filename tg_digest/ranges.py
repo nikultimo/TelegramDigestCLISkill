@@ -1,5 +1,9 @@
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+
+LOCAL_TZ = ZoneInfo("Europe/Moscow")
 
 
 @dataclass(frozen=True)
@@ -18,7 +22,7 @@ def resolve_date_range(
     from_date: str | None = None,
     to_date: str | None = None,
 ) -> DigestDateRange:
-    today = today or date.today()
+    today = today or datetime.now(LOCAL_TZ).date()
 
     if range_name == "yesterday-today":
         start = today - timedelta(days=1)

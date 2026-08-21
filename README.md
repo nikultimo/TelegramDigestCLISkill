@@ -8,7 +8,7 @@ Works as a Claude Code skill, Codex/Hermes agent tool, or standalone CLI.
 ## Features
 
 - Zero Telegram credentials — scrapes public `/s/` preview pages
-- Any OpenAI-compatible LLM (OpenAI, Ollama, Hermes, LM Studio, Claude proxy)
+- OpenAI-compatible chat endpoint with JSON Schema support
 - Self-learning: `like`/`dislike` feedback adjusts topic weights for future runs
 - Dual delivery: Telegram DM + local `.md` file
 - Semantic deduplication: same story from multiple channels → one item, all sources cited
@@ -36,11 +36,14 @@ tg-digest profile init
 # 5. Test with dry run
 tg-digest run --dry-run
 
-# 6. Give feedback
+# 6. Create and deliver the real digest
+tg-digest run
+
+# 7. Give feedback using IDs from the real digest
 tg-digest feedback 3 like
 tg-digest feedback 7 dislike
 
-# 7. See what was learned
+# 8. See what was learned
 tg-digest profile show
 ```
 
@@ -66,8 +69,8 @@ OPENAI_MODEL=gpt-4o-mini                     # or mistral, hermes-3, llama3, etc
 TG_BOT_TOKEN=...    # optional — from @BotFather
 TG_CHAT_ID=...      # optional — your chat ID from @userinfobot
 
-TG_API_ID=0         # optional — only for tg-digest sync, from https://my.telegram.org/apps
-TG_API_HASH=...     # optional — only for tg-digest sync
+TG_API_ID=0         # optional — sync + authorized MTProto fallback
+TG_API_HASH=...     # optional — from https://my.telegram.org/apps
 TG_SESSION=./data/tg_session
 
 SCRAPE_LIMIT=20               # optional — max posts to fetch per channel per run
@@ -104,7 +107,7 @@ tg-digest channel remove channelname
 
 # Run digest
 tg-digest run              # default window: yesterday + today
-tg-digest run --dry-run    # same but skip Telegram send
+tg-digest run --dry-run    # preview: skip Telegram and do not consume posts
 tg-digest run --range today
 tg-digest run --range yesterday
 tg-digest run --range days --days 7
@@ -127,6 +130,10 @@ tg-digest profile tune "меньше AI tool lists, больше production ML"
 tg-digest profile reset --yes  # reset readable profile and learned weights
 ```
 
+If every public preview request fails and an already-authorized Telethon
+session is configured, `run` retries through MTProto. It never starts an
+interactive login; run `tg-digest sync` manually first to authorize the session.
+
 ## How Recommendations Work
 
 `tg-digest profile init` stores a readable preference profile in SQLite:
@@ -136,8 +143,11 @@ saved yet, scoring falls back to a broad personal profile covering practical AI,
 backend/highload, career/money, English, health/style, games/lore, travel, cars,
 and useful tech.
 
-The readable profile is the primary relevance signal. Learned topic weights from
-feedback are only a weak secondary signal for fine-tuning:
+The readable profile is the primary relevance signal. The scorer reads up to
+3,000 characters per post and returns a strict 0–10 score plus relevance,
+depth, actionability, novelty, credibility, penalty, a reason, and normalized
+topics. The 15 strongest positive and 15 strongest negative learned weights are
+included only as weak secondary signals:
 
 | Action | Effect |
 |---|---|
@@ -146,20 +156,26 @@ feedback are only a weak secondary signal for fine-tuning:
 
 Scored topics are saved with each digest item, so feedback usually does not need a
 second LLM topic-extraction pass. Posts below your `min_score` are dropped before
-summarization, so weak matches are not forced into the digest. If more than 20
-posts pass the threshold, only the top 20 by score are included in a single
-digest — the rest remain in the DB and can surface in a later run.
+summarization, so weak matches are not forced into the digest. If more than 25
+posts pass the threshold, only the top 25 by score are sent to the summarizer,
+which returns at most 12 final items. Scores 7–10 form the core; at most two
+score-5/6 items may be retained when they add distinct value. The rest remain in the DB and can surface
+in a later run.
 
 Use `tg-digest profile set` for exact edits, or `tg-digest profile tune "..."` for
 natural-language adjustments through the configured LLM — including digest volume:
 "показывай больше" lowers the `min_score` threshold, "make it stricter" raises it.
-Digest item IDs are shown
-as `#42` in the output and can be used with `tg-digest feedback 42 like|dislike`.
+Empty or omitted readable fields in the LLM response preserve their current values.
+Digest item IDs are shown as `#42` in a real run and can be used with
+`tg-digest feedback 42 like|dislike`. A dry run writes
+`YYYY-MM-DD.preview.md`, does not create feedback IDs, does not consume posts,
+and does not send Telegram; fetched posts are still cached in SQLite.
 
 ## Digest Date Ranges
 
 By default, `tg-digest run` includes posts from yesterday and today. Date windows are
-inclusive and use the Telegram post publish date converted to the local calendar day.
+inclusive and consistently use the Telegram post publish date converted to the
+Moscow calendar day.
 Rows without a Telegram publish date are skipped until they are repaired by a later scrape
 or `tg-digest db backfill-dates`.
 
@@ -170,7 +186,9 @@ tg-digest run --range days --days 7
 tg-digest run --range custom --from 2026-07-01 --to 2026-07-08
 ```
 
-Posts already included in a previous digest item are not resurfaced in later runs.
+Posts already included in a previous digest item are not resurfaced in later
+runs. When several sources are merged into one story, every source is marked as
+consumed.
 
 ## Output Format
 
@@ -180,17 +198,26 @@ Digest output is generated in Russian and formatted for Telegram readability:
 🗓 AI ДАЙДЖЕСТ • 08.07.2026
 
 ━━━━━━━━━━━━━━━
-📰 ПРОЧИТАТЬ
+🤖 AI / ML
 
-🔹 Заголовок новости
+📚 Изучить:
+🔹 #42 Заголовок новости
 Короткое объяснение, почему это важно. [1](https://t.me/channel/1234)
+
+━━━━━━━━━━━━━━━
+Каналов: 87 · Постов просмотрено: 1347 · В дайджесте: 3
+Воронка: получено 1347 → в диапазоне 40 → кандидатов 29 → порог прошли 3 → на суммаризацию 3 → итог 3
 ```
 
 Sources render as compact numbered markdown links: Telegram shows a clickable
 `[1]` instead of a raw URL, and the same `[1](url)` syntax in the `.md` file
 renders the same way in a markdown viewer while still keeping the full URL
-one click (or hover) away. Within each topic/category section, items are
-ordered by relevance score, most relevant first.
+one click (or hover) away. Topic sections cover AI/ML, backend/infra,
+career/business, health/fitness, travel, English, games/fantasy, cars/tech, and
+other. The independent action axis is try, learn, read, or practice. Within each
+topic/action section, items are ordered by relevance score, most relevant first.
+Final validation rejects internal editorial notes such as `дублирует пост 3`
+and retries summarization instead of publishing them.
 
 ## Public Release Checklist
 
@@ -267,14 +294,14 @@ an editable install).
 ## Architecture
 
 ```
-scraper.py   → fetch /s/ HTML, parse posts
-filter.py    → LLM scores posts against readable profile + topic_weights
-summarizer.py → LLM deduplicates + classifies into 4 categories
-deliver.py   → render Markdown, write file, send Telegram DM
-feedback.py  → LLM extracts topics, update topic_weights in SQLite
+scraper.py   → fetch /s/ HTML, parse posts, report partial channel failures
+filter.py    → strict 3,000-char component scoring against profile + balanced weights
+summarizer.py → profile-aware deduplication, 9 topics × 4 actions, strict schema
+deliver.py   → render Markdown + funnel, write file, send Telegram DM
+feedback.py  → normalize stored topics and update topic_weights in SQLite
 profile.py   → readable preference profile tuning helpers
-db.py        → SQLite: channels, posts, digest_items(+topics), feedback, preference_profile, topic_weights
-llm.py       → thin httpx OpenAI-compatible client (no SDK)
+db.py        → SQLite: channels, posts, digest items/sources, feedback, profile, weights
+llm.py       → thin httpx OpenAI-compatible client with JSON/JSON-Schema output
 config.py    → pydantic-settings, loads .env
 cli.py       → typer CLI wiring all above
 ```
